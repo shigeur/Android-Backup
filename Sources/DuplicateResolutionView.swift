@@ -40,10 +40,12 @@ struct DuplicateResolutionView: View {
                             Task { await service.executeTransfer(resolution: .skip) }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(!service.isScanComplete)
                         
                         Button("Replace All") {
                             Task { await service.executeTransfer(resolution: .replace) }
                         }
+                        .disabled(!service.isScanComplete)
                         
                         Button("Cancel") {
                             service.cancel()
@@ -58,6 +60,7 @@ struct DuplicateResolutionView: View {
                             Task { await service.executeTransfer(resolution: .skip) }
                         }
                         .buttonStyle(.borderedProminent)
+                        .disabled(!service.isScanComplete)
                         
                         Button("Cancel") {
                             service.cancel()
@@ -65,6 +68,16 @@ struct DuplicateResolutionView: View {
                         }
                         Spacer()
                     }
+                }
+                
+                if !service.isScanComplete {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Scanning remaining files in background...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 10)
                 }
             } else {
                 Text("Analyzing...")

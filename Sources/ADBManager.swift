@@ -166,4 +166,71 @@ class ADBManager: ObservableObject {
             }
         }
     }
+    
+    /// Executes an ADB command and streams standard output line by line.
+    func runStreaming(_ arguments: [String]) -> AsyncStream<String> {
+        return AsyncStream { continuation in
+            guard FileManager.default.fileExists(atPath: adbPath) else {
+                continuation.finish()
+                return
+            }
+            
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: adbPath)
+            process.arguments = arguments
+            
+            let outputPipe = Pipe()
+            process.standardOutput = outputPipe
+            
+            // Do not capture standard error for this stream to avoid interweaving,
+            // or we could capture it separately if needed.
+            
+            let fileHandle = outputPipe.fileHandleForReading
+            
+            var buffer = Data()
+            
+            fileHandle.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    return
+                }
+                buffer.append(data)
+                
+                // Extract lines
+                var range = buffer.range(of: Data("\n".utf8))
+                while let r = range {
+                    let lineData = buffer.subdata(in: 0..<r.lowerBound)
+                    if let lineStr = String(data: lineData, encoding: .utf8) {
+                        continuation.yield(lineStr)
+                    }
+                    buffer.removeSubrange(0..<r.upperBound)
+                    range = buffer.range(of: Data("\n".utf8))
+                }
+            }
+            
+            process.terminationHandler = { _ in
+                fileHandle.readabilityHandler = nil
+                
+                // Flush remaining buffer
+                if !buffer.isEmpty {
+                    if let lineStr = String(data: buffer, encoding: .utf8) {
+                        continuation.yield(lineStr)
+                    }
+                }
+                continuation.finish()
+            }
+            
+            do {
+                try process.run()
+                
+                continuation.onTermination = { @Sendable _ in
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                }
+            } catch {
+                continuation.finish()
+            }
+        }
+    }
 }

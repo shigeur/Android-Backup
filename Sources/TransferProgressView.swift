@@ -13,13 +13,7 @@ struct TransferProgressView: View {
                     .padding(30)
                     
             case .scanning:
-                VStack(spacing: 16) {
-                    ProgressView("Scanning files...")
-                    Text("Found \(service.totalFiles) items")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(30)
+                scanningView
                     
             case .preflight:
                 DuplicateResolutionView(service: service)
@@ -42,6 +36,65 @@ struct TransferProgressView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .cornerRadius(12)
         .shadow(radius: 10)
+    }
+    
+    private var scanningView: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Scanning Files...")
+                .font(.headline)
+            
+            VStack(spacing: 12) {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(.blue)
+                
+                HStack(alignment: .top, spacing: 20) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Files Found:")
+                            .font(.caption)
+                            .foregroundColor(Color(NSColor.tertiaryLabelColor))
+                        Text("\(service.totalFiles)")
+                            .font(.caption.monospacedDigit())
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Estimated Size:")
+                            .font(.caption)
+                            .foregroundColor(Color(NSColor.tertiaryLabelColor))
+                        Text("\(formatBytes(service.totalBytesFound))")
+                            .font(.caption.monospacedDigit())
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Scan Speed:")
+                            .font(.caption)
+                            .foregroundColor(Color(NSColor.tertiaryLabelColor))
+                        Text("\(Int(service.scanningSpeedItemsPerSecond)) items/s")
+                            .font(.caption.monospacedDigit())
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Elapsed:")
+                            .font(.caption)
+                            .foregroundColor(Color(NSColor.tertiaryLabelColor))
+                        Text("\(formatDuration(service.elapsedTime))")
+                            .font(.caption.monospacedDigit())
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+            
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    service.cancel()
+                }
+            }
+        }
+        .padding(24)
     }
     
     private var copyingView: some View {
