@@ -52,8 +52,10 @@ The application requires ADB to communicate with your device. If you have Androi
 See [ROADMAP.md](ROADMAP.md) for planned features and future development goals.
 
 ## Credits
-Designed and developed by Ninos.
+Designed and ideas by Me.
 Development assisted by Google Antigravity AI.
+Sorry im not programmer, just a designer that need tools to transfer from my Android device to my macbook.
+Please do help if anyone can improve the app.
 
 ## License
 This project is released under the [MIT License](LICENSE).
