@@ -16,9 +16,9 @@ struct DualPaneView: View {
     @State private var showSmartSync = false
     @FocusState private var activePane: Pane?
     
-    init(deviceManager: DeviceManager) {
-        self.deviceManager = deviceManager
-        let device = deviceManager.selectedDevice ?? AndroidDevice(serial: "dummy", model: "Dummy", status: "offline")
+    init() {
+        self.deviceManager = DeviceManager.shared
+        let device = DeviceManager.shared.selectedDevice! // Guaranteed by coordinator
         _androidViewModel = StateObject(wrappedValue: DirectoryViewModel(device: device))
     }
     

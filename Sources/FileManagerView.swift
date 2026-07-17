@@ -166,9 +166,7 @@ struct FileManagerView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear {
-                viewModel.loadDirectory(viewModel.currentPath)
-            }
+            // .onAppear removed, viewModel init triggers load
             .alert("Delete \(itemsToDelete.count) selected items?", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
@@ -364,13 +362,12 @@ struct InfoRow: View {
 }
 
 struct StandaloneFileManagerView: View {
-    @ObservedObject var deviceManager: DeviceManager
+    @ObservedObject var deviceManager = DeviceManager.shared
     @StateObject private var viewModel: DirectoryViewModel
     @ObservedObject var transferService = TransferService.shared
     
-    init(deviceManager: DeviceManager) {
-        self.deviceManager = deviceManager
-        let device = deviceManager.selectedDevice ?? AndroidDevice(serial: "dummy", model: "Dummy", status: "offline")
+    init() {
+        let device = DeviceManager.shared.selectedDevice! // Guaranteed to exist because we are in .ready state
         _viewModel = StateObject(wrappedValue: DirectoryViewModel(device: device))
     }
     

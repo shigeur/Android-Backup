@@ -13,6 +13,7 @@ class DirectoryViewModel: ObservableObject {
     
     init(device: AndroidDevice) {
         self.directoryService = DirectoryService(device: device)
+        loadDirectory("/")
     }
     
     func loadDirectory(_ path: String) {

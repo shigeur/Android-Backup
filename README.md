@@ -1,21 +1,56 @@
-# Android Backup (Native macOS App)
+# Android Backup
 
-This is a native macOS application built with SwiftUI for managing and backing up Android devices over ADB without requiring MTP.
+Android Backup is an open-source macOS application designed to make transferring files between Android devices and macOS significantly faster, easier, and more reliable.
 
-## Prerequisites
-- macOS 13.0 or higher
-- Xcode 16.0 or higher
-- Apple Silicon (or Intel)
+## The Problem
+Android's standard MTP (Media Transfer Protocol) performs incredibly poorly when transferring large directories containing thousands of small files (like Camera photos, WhatsApp media, or Voice Notes). MTP transfers these files sequentially and struggles under the high overhead, often resulting in agonizingly slow speeds or complete failure.
 
-## How to Build and Run in Xcode
+## The Solution
+Android Backup bypasses MTP entirely by leveraging the **Android Debug Bridge (ADB)**. This allows for dramatically faster, parallelized transfers and guarantees reliability while providing a native, beautiful macOS interface.
 
-1. Double click `AndroidBackup.xcodeproj` to open it in Xcode.
-2. Select the **AndroidBackup** scheme in the top toolbar (next to the play button).
-3. Select **My Mac** as the destination.
-4. Press `Cmd + R` or click the **Play** button to build and run the application.
+## Features
+- **Native macOS Interface:** Built with SwiftUI and AppKit to feel right at home on your Mac.
+- **ADB Accelerated Transfers:** Bypasses MTP for maximum speed and stability.
+- **Dual Pane File Manager:** Easily move files between Android and macOS side-by-side.
+- **Backup Mode:** A dedicated mode for managing automated directory backups.
+- **Native Clipboard:** Full support for `Cmd+C`, `Cmd+X`, and `Cmd+V` cross-platform.
+- **Duplicate Detection:** Smart handling of duplicate files during transfers.
+- **Progress Tracking:** Real-time metrics including ETA, transfer speed, and byte-level progress.
 
-## Troubleshooting Sandbox Permissions
+## Screenshots
 
-If the ADB Connection Diagnostics page reports that the `adb` executable cannot be launched due to the sandbox:
-1. Ensure that the `adb` executable has been manually selected using the "Browse..." button in the Settings page. This registers a Security Scoped Bookmark.
-2. Because this project is fully sandboxed, it utilizes the `com.apple.security.files.user-selected.executable` entitlement to allow executing the binary. This is configured automatically in `Entitlements.plist`.
+*(Screenshots coming soon)*
+
+## Requirements
+- macOS 12.0 or later
+- Android device with **USB Debugging** enabled
+- Android Platform Tools (ADB)
+
+## Installation & Build Instructions
+
+1. Clone the repository:
+```bash
+git clone https://github.com/shigeur/Android-Backup.git
+cd Android-Backup
+```
+2. Build the application using the included script:
+```bash
+./build_app.sh
+```
+3. Run the application:
+```bash
+open "Android Backup.app"
+```
+
+## Setup (ADB)
+The application requires ADB to communicate with your device. If you have Android Studio installed, or `android-platform-tools` installed via Homebrew (`brew install android-platform-tools`), the app will auto-detect it. Otherwise, you can specify the manual path to the `adb` executable in the application's Settings.
+
+## Roadmap
+See [ROADMAP.md](ROADMAP.md) for planned features and future development goals.
+
+## Credits
+Designed and developed by Ninos.
+Development assisted by Google Antigravity AI.
+
+## License
+This project is released under the [MIT License](LICENSE).

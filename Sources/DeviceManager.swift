@@ -16,24 +16,17 @@ struct AndroidDevice: Identifiable, Equatable {
 class DeviceManager: ObservableObject {
     @Published var connectedDevices: [AndroidDevice] = []
     @Published var selectedDevice: AndroidDevice?
+    static let shared = DeviceManager()
     
     private var timer: Timer?
     
-    init() {
-        startPolling()
-    }
+    private init() {}
     
-    func startPolling() {
-        Task {
-            // First attempt to automatically discover or validate ADB
-            _ = await ADBManager.shared.discoverADB()
-            
-            await refreshDevices()
-            
-            timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    await self?.refreshDevices()
-                }
+    func startBackgroundPolling() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshDevices()
             }
         }
     }
