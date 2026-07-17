@@ -19,7 +19,10 @@ Android Backup bypasses MTP entirely by leveraging the **Android Debug Bridge (A
 
 ## Screenshots
 
-*(Screenshots coming soon)*
+<img width="2530" height="1390" alt="Android Backup 1" src="https://github.com/user-attachments/assets/516102d9-436c-4d05-8fce-7a789b1d607b" />
+
+<img width="441" height="353" alt="image" src="https://github.com/user-attachments/assets/fb7bd55c-a296-40cd-9b69-9ff2784e5c63" />
+
 
 ## Requirements
 - macOS 12.0 or later
