@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 class DirectoryViewModel: ObservableObject {
-    @Published var currentPath: String = "/"
+    @Published var currentPath: String = "/sdcard"
     @Published var files: [ADBFile] = []
     @Published var selectedFileIDs: Set<String> = []
     @Published var isLoading: Bool = false
@@ -13,7 +13,7 @@ class DirectoryViewModel: ObservableObject {
     
     init(device: AndroidDevice) {
         self.directoryService = DirectoryService(device: device)
-        loadDirectory("/")
+        loadDirectory("/sdcard")
     }
     
     func loadDirectory(_ path: String) {

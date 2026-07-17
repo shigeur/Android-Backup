@@ -46,8 +46,9 @@ class DirectoryService {
     }
     
     func listDirectory(_ path: String) async throws -> [ADBFile] {
-        // Robust command: find '/sdcard' -maxdepth 1 -mindepth 1 -exec stat -c '%F||%s||%Y||%n' {} \;
-        let safePath = "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        // Robust command: append trailing slash so symlinked directories like /sdcard are traversed
+        let targetPath = path.hasSuffix("/") ? path : path + "/"
+        let safePath = "'" + targetPath.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let formatStr = "'%F||%s||%Y||%n'"
         let shellCmd = "find \(safePath) -maxdepth 1 -mindepth 1 -exec stat -c \(formatStr) {} \\;"
         
@@ -65,7 +66,7 @@ class DirectoryService {
                 let typeStr = parts[0]
                 let sizeStr = parts[1]
                 let mtimeStr = parts[2]
-                let fullPath = parts[3...].joined(separator: "||") // In case filename has ||
+                let rawFullPath = parts[3...].joined(separator: "||") // In case filename has ||
                 
                 let type: FileType
                 if typeStr.contains("directory") {
@@ -80,12 +81,15 @@ class DirectoryService {
                 
                 let size = Int64(sizeStr) ?? 0
                 let mtime = TimeInterval(mtimeStr) ?? 0
-                let name = URL(fileURLWithPath: fullPath).lastPathComponent
+                
+                let url = URL(fileURLWithPath: rawFullPath)
+                let normalizedPath = url.path
+                let name = url.lastPathComponent
                 
                 let file = ADBFile(
-                    id: fullPath,
+                    id: normalizedPath,
                     name: name,
-                    path: fullPath,
+                    path: normalizedPath,
                     type: type,
                     size: size,
                     modifiedDate: Date(timeIntervalSince1970: mtime)

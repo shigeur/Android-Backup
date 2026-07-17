@@ -86,6 +86,7 @@ struct FileManagerView: View {
                         // Left Pane: Quick Access / Folder Tree placeholder
                         List {
                             Section("Quick Access") {
+                                Button("Internal Storage") { viewModel.loadDirectory("/sdcard") }
                                 Button("Camera") { viewModel.loadDirectory("/sdcard/DCIM/Camera") }
                                 Button("Downloads") { viewModel.loadDirectory("/sdcard/Download") }
                                 Button("Movies") { viewModel.loadDirectory("/sdcard/Movies") }
