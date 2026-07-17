@@ -1,5 +1,9 @@
 # Changelog
 
+## Public Beta 1.0.2
+✓ UI Optimisation, transfer file optimisation.
+✓ Make scanning files before transfer plan faster.
+
 ## Public Beta 1.0.1
 ✓ UI Optimisation
 ✓ Fixed copy/paste keyboard shortcuts in File Manager

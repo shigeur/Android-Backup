@@ -74,6 +74,12 @@ class TransferService: ObservableObject {
     @Published var totalBytesToCopy: Int64 = 0
     @Published var currentSpeedBytesPerSecond: Double = 0.0
     
+    // Scanning specific metrics
+    @Published var totalFoldersFound: Int = 0
+    @Published var totalBytesFound: Int64 = 0
+    @Published var scanningSpeedItemsPerSecond: Double = 0.0
+    @Published var isScanComplete: Bool = false
+    
     @Published var transferPlan: TransferPlan? = nil
     
     // Detailed Progress
@@ -102,6 +108,10 @@ class TransferService: ObservableObject {
         totalBytesToCopy = 0
         currentSpeedBytesPerSecond = 0.0
         peakSpeedBytesPerSecond = 0.0
+        isScanComplete = false
+        totalFoldersFound = 0
+        totalBytesFound = 0
+        scanningSpeedItemsPerSecond = 0.0
         elapsedTime = 0
         currentFileSize = 0
         currentFileBytesCopied = 0
@@ -121,83 +131,175 @@ class TransferService: ObservableObject {
     ) async {
         isCancelled = false
         state = .scanning
+        isScanComplete = false
+        
+        let startTime = Date()
+        transferPlan = TransferPlan(device: device, direction: direction, destination: destination, isBackup: isBackup)
+        
+        progressTimer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
+            guard let self = self, !self.isScanComplete else { return }
+            self.elapsedTime = Date().timeIntervalSince(startTime)
+            if self.elapsedTime > 0 {
+                self.scanningSpeedItemsPerSecond = Double(self.totalFiles) / self.elapsedTime
+            }
+        }
         
         do {
-            var allJobs: [TransferJob] = []
-            var plan = TransferPlan(device: device, direction: direction, destination: destination, isBackup: isBackup)
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for path in sourcePaths {
+                    group.addTask {
+                        if direction == .androidToMac {
+                            // Check Cache first
+                            if let cached = await ScanCacheManager.shared.getCachedFiles(deviceSerial: device.serial, path: path) {
+                                await self.processDiscoveredFiles(cached, destination: destination, direction: direction, device: device, duplicateMode: duplicateMode)
+                            } else {
+                                let files = try await self.streamAndroidFileList(device: device, remotePath: path, destination: destination, direction: direction, duplicateMode: duplicateMode)
+                                await ScanCacheManager.shared.setCachedFiles(deviceSerial: device.serial, path: path, files: files)
+                            }
+                        } else {
+                            // Mac to Android
+                            let localURL = URL(fileURLWithPath: path)
+                            let files = try await self.fetchMacFileList(localURL: localURL)
+                            // Map local to remote
+                            let remoteFiles = files.map { RemoteFile(path: (destination.path as NSString).appendingPathComponent($0.relativePath), relativePath: $0.relativePath, size: $0.size, modifiedDate: $0.modifiedDate) }
+                            await self.processDiscoveredFiles(remoteFiles, destination: destination, direction: direction, device: device, duplicateMode: duplicateMode, originalMacFiles: files)
+                        }
+                    }
+                }
+                
+                try await group.waitForAll()
+            }
+            
+            isScanComplete = true
+            progressTimer?.cancel()
+            
+            // Auto transition to preflight if the user hasn't cancelled
+            if !isCancelled {
+                state = .preflight
+            }
+        } catch {
+            isScanComplete = true
+            progressTimer?.cancel()
+            state = .error(error.localizedDescription)
+        }
+    }
+    
+    private func processDiscoveredFiles(_ files: [RemoteFile], destination: URL, direction: TransferDirection, device: AndroidDevice, duplicateMode: DuplicateDetectionMode, originalMacFiles: [LocalFetchFile]? = nil) async {
+        for (index, file) in files.enumerated() {
+            if isCancelled { break }
+            
+            let relativePath = file.relativePath
+            var localPath = ""
+            var remotePath = ""
             
             if direction == .androidToMac {
-                for path in sourcePaths {
-                    let files = try await fetchAndroidFileList(device: device, remotePath: path)
-                    for file in files {
-                        let relativePath = file.relativePath
-                        let destFileURL = destination.appendingPathComponent(relativePath)
-                        allJobs.append(TransferJob(remotePath: file.path, localPath: destFileURL.path, relativePath: relativePath, size: file.size, modifiedDate: file.modifiedDate))
-                    }
-                }
+                localPath = destination.appendingPathComponent(relativePath).path
+                remotePath = file.path
             } else {
-                for path in sourcePaths {
-                    let localURL = URL(fileURLWithPath: path)
-                    let files = try fetchMacFileList(localURL: localURL)
-                    for file in files {
-                        let relativePath = file.relativePath
-                        let remoteDestPath = (destination.path as NSString).appendingPathComponent(relativePath)
-                        allJobs.append(TransferJob(remotePath: remoteDestPath, localPath: file.localPath, relativePath: relativePath, size: file.size, modifiedDate: file.modifiedDate))
-                    }
-                }
+                localPath = originalMacFiles?[index].localPath ?? ""
+                remotePath = file.path
             }
             
-            // Check existence for duplicate detection
-            for job in allJobs {
-                var isDuplicate = false
-                var isModified = false
-                
-                if direction == .androidToMac {
-                    let fm = FileManager.default
-                    if fm.fileExists(atPath: job.localPath) {
-                        let attrs = try? fm.attributesOfItem(atPath: job.localPath)
-                        let localSize = attrs?[.size] as? Int64 ?? 0
-                        
-                        if duplicateMode == .fast || duplicateMode == .balanced {
-                            if localSize == job.size {
-                                isDuplicate = true
-                            } else {
-                                isModified = true
-                            }
-                        }
-                    }
-                } else {
-                    // macToAndroid
-                    // Simplistic check for now, ideally we'd stat the specific file
-                    // But to avoid N network calls, we consider it new unless Backup DB knows it, or we do a batch stat.
-                    // For now, use the DB if available, otherwise assume new (Mode 1 Fast without extra ADB overhead).
-                    if let record = try? BackupRepository.shared.getFile(deviceSerial: device.serial, relativePath: job.relativePath) {
-                        if record.size == job.size {
-                            isDuplicate = true
-                        } else {
-                            isModified = true
-                        }
-                    }
-                }
-                
-                if isDuplicate {
-                    plan.duplicateJobs.append(job)
-                    plan.duplicateBytes += job.size
-                } else if isModified {
-                    plan.modifiedJobs.append(job)
-                    plan.totalBytes += job.size
-                } else {
-                    plan.newJobs.append(job)
-                    plan.totalBytes += job.size
-                }
-            }
-            
-            self.transferPlan = plan
-            self.state = .preflight
-            
-        } catch {
-            self.state = .error(error.localizedDescription)
+            let job = TransferJob(remotePath: remotePath, localPath: localPath, relativePath: relativePath, size: file.size, modifiedDate: file.modifiedDate)
+            await self.checkDuplicateAndAppend(job: job, direction: direction, device: device, duplicateMode: duplicateMode)
         }
+    }
+    
+    private func checkDuplicateAndAppend(job: TransferJob, direction: TransferDirection, device: AndroidDevice, duplicateMode: DuplicateDetectionMode) async {
+        var isDuplicate = false
+        var isModified = false
+        
+        if direction == .androidToMac {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: job.localPath) {
+                let attrs = try? fm.attributesOfItem(atPath: job.localPath)
+                let localSize = attrs?[.size] as? Int64 ?? 0
+                
+                if duplicateMode == .fast || duplicateMode == .balanced {
+                    if localSize == job.size {
+                        isDuplicate = true
+                    } else {
+                        isModified = true
+                    }
+                }
+            }
+        } else {
+            // Mac to Android
+            if let record = try? BackupRepository.shared.getFile(deviceSerial: device.serial, relativePath: job.relativePath) {
+                if record.size == job.size {
+                    isDuplicate = true
+                } else {
+                    isModified = true
+                }
+            }
+        }
+        
+        // Append incrementally on Main Actor
+        self.totalFiles += 1
+        self.totalBytesFound += job.size
+        
+        if isDuplicate {
+            self.transferPlan?.duplicateJobs.append(job)
+            self.transferPlan?.duplicateBytes += job.size
+        } else if isModified {
+            self.transferPlan?.modifiedJobs.append(job)
+            self.transferPlan?.totalBytes += job.size
+        } else {
+            self.transferPlan?.newJobs.append(job)
+            self.transferPlan?.totalBytes += job.size
+        }
+    }
+    
+    private func streamAndroidFileList(device: AndroidDevice, remotePath: String, destination: URL, direction: TransferDirection, duplicateMode: DuplicateDetectionMode) async throws -> [RemoteFile] {
+        let isDirCommand = ["-s", device.serial, "shell", "if [ -d '\(remotePath)' ]; then echo 'DIR'; else echo 'FILE'; fi"]
+        let isDirResult = try await ADBManager.shared.run(isDirCommand)
+        let isDirectory = isDirResult.trimmingCharacters(in: .whitespacesAndNewlines) == "DIR"
+        
+        let command = ["-s", device.serial, "shell", "find", "'\(remotePath)'", "-type", "f", "-exec", "stat", "-c", "'%s||%Y||%n'", "{}", "\\;"]
+        
+        let stream = ADBManager.shared.runStreaming(command)
+        
+        var allFiles: [RemoteFile] = []
+        let remotePathName = (remotePath as NSString).lastPathComponent
+        let parentDir = isDirectory ? (remotePath as NSString).deletingLastPathComponent : ""
+        
+        for await line in stream {
+            if isCancelled { break }
+            if line.isEmpty || line.contains("find: ") || line.contains("stat: ") { continue }
+            
+            let parts = line.components(separatedBy: "||")
+            guard parts.count >= 3 else { continue }
+            
+            if let size = Int64(parts[0].trimmingCharacters(in: .whitespaces)), let mtime = TimeInterval(parts[1].trimmingCharacters(in: .whitespaces)) {
+                let fullPath = parts[2...].joined(separator: "||").trimmingCharacters(in: .whitespaces)
+                
+                var relativePath = ""
+                if isDirectory {
+                    if parentDir != "/" {
+                        relativePath = fullPath.replacingOccurrences(of: parentDir + "/", with: "")
+                    } else {
+                        relativePath = fullPath.replacingOccurrences(of: "/", with: "")
+                    }
+                } else {
+                    relativePath = remotePathName
+                }
+                
+                let file = RemoteFile(path: fullPath, relativePath: relativePath, size: size, modifiedDate: Date(timeIntervalSince1970: mtime))
+                allFiles.append(file)
+                
+                // Process immediately
+                let destFileURL = destination.appendingPathComponent(relativePath)
+                let job = TransferJob(remotePath: file.path, localPath: destFileURL.path, relativePath: relativePath, size: file.size, modifiedDate: file.modifiedDate)
+                await checkDuplicateAndAppend(job: job, direction: direction, device: device, duplicateMode: duplicateMode)
+                
+                // Trigger fast start state if we have parsed enough
+                if totalFiles == 500 && self.state == .scanning {
+                    self.state = .preflight // UI shows preflight while scan finishes in background
+                }
+            }
+        }
+        
+        return allFiles
     }
     
     func executeTransfer(resolution: DuplicateResolution) async {
