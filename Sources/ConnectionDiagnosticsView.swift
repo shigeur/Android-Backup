@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ConnectionDiagnosticsView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var adbManager = ADBManager.shared
     
     // Diagnostic State
@@ -49,18 +50,42 @@ struct ConnectionDiagnosticsView: View {
                 .disabled(testRunning)
             }
             .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            
+            Divider()
             
             Form {
                 Section("1. ADB Executable") {
                     LabeledContent("Configured Path", value: adbExecutablePath)
                     LabeledContent("Resolved Path", value: adbResolvedPath)
-                    LabeledContent("Is Symlink", value: adbIsSymlink ? "✅ Yes" : "❌ No")
-                    if adbIsSymlink {
-                        LabeledContent("Symlink Target Exists", value: adbSymlinkTargetExists ? "✅ Yes" : "❌ No")
+                    
+                    HStack {
+                        Text("Is Symlink")
+                        Spacer()
+                        StatusIcon(isValid: adbIsSymlink)
                     }
-                    LabeledContent("Exists (fileExists)", value: adbExists ? "✅ Yes" : "❌ No")
-                    LabeledContent("Reachable (checkResourceIsReachable)", value: adbIsReachable ? "✅ Yes" : "❌ No")
-                    LabeledContent("Is Executable", value: adbIsExecutable ? "✅ Yes" : "❌ No")
+                    if adbIsSymlink {
+                        HStack {
+                            Text("Symlink Target Exists")
+                            Spacer()
+                            StatusIcon(isValid: adbSymlinkTargetExists)
+                        }
+                    }
+                    HStack {
+                        Text("Exists")
+                        Spacer()
+                        StatusIcon(isValid: adbExists)
+                    }
+                    HStack {
+                        Text("Reachable")
+                        Spacer()
+                        StatusIcon(isValid: adbIsReachable)
+                    }
+                    HStack {
+                        Text("Is Executable")
+                        Spacer()
+                        StatusIcon(isValid: adbIsExecutable)
+                    }
                     LabeledContent("POSIX Permissions", value: adbPosixPermissions)
                 }
                 
@@ -111,6 +136,29 @@ struct ConnectionDiagnosticsView: View {
                         .foregroundColor(.secondary)
                 }
             }
+            .formStyle(.grouped)
+            .textSelection(.enabled)
+            
+            Divider()
+            
+            HStack {
+                Spacer()
+                Button("Close") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction) // Matches ESC
+                .buttonStyle(.borderedProminent)
+                
+                // Invisible button to capture Cmd+W
+                Button("") {
+                    dismiss()
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
         }
         .frame(minWidth: 600, minHeight: 600)
     }
@@ -224,5 +272,13 @@ struct ConnectionDiagnosticsView: View {
             details += "\nUnderlyingError: \(String(describing: underlying))"
         }
         return details
+    }
+}
+
+struct StatusIcon: View {
+    let isValid: Bool
+    var body: some View {
+        Image(systemName: isValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+            .foregroundColor(isValid ? .green : .red)
     }
 }

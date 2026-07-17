@@ -4,8 +4,9 @@
 set -e
 
 APP_NAME="AndroidBackup"
+DISPLAY_NAME="Android Backup"
 BUILD_DIR=".build/release"
-APP_BUNDLE="${APP_NAME}.app"
+APP_BUNDLE="Android Backup.app"
 MACOS_DIR="${APP_BUNDLE}/Contents/MacOS"
 RESOURCES_DIR="${APP_BUNDLE}/Contents/Resources"
 
@@ -17,7 +18,15 @@ mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
 
 echo "Copying Executable..."
-cp "${BUILD_DIR}/${APP_NAME}" "${MACOS_DIR}/"
+cp "${BUILD_DIR}/${APP_NAME}" "${MACOS_DIR}/AndroidBackup"
+
+echo "Generating Icon..."
+# iconutil requires .iconset folder structure with exact naming: icon_16x16.png, icon_16x16@2x.png, etc.
+# Assets.xcassets/AppIcon.appiconset has exactly these. We can just copy it to an .iconset and compile.
+cp -r Assets.xcassets/AppIcon.appiconset AppIcon.iconset
+iconutil -c icns AppIcon.iconset
+mv AppIcon.icns "${RESOURCES_DIR}/AppIcon.icns"
+rm -rf AppIcon.iconset
 
 echo "Generating Info.plist..."
 cat <<EOF > "${APP_BUNDLE}/Contents/Info.plist"
@@ -26,15 +35,19 @@ cat <<EOF > "${APP_BUNDLE}/Contents/Info.plist"
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>${APP_NAME}</string>
+    <string>AndroidBackup</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.${APP_NAME}</string>
+    <string>com.ninos.androidbackup</string>
     <key>CFBundleName</key>
-    <string>${APP_NAME}</string>
+    <string>${DISPLAY_NAME}</string>
+    <key>CFBundleDisplayName</key>
+    <string>${DISPLAY_NAME}</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>Beta-1</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>

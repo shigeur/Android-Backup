@@ -39,8 +39,10 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     var onDoubleClick: ((Item) -> Void)?
     var contextMenuProvider: ((Set<String>) -> NSMenu?)?
     
-    // Prevent recursive selection updates
+    // Prevent recursive updates
     private var isUpdatingSelection = false
+    private var isUpdating = false
+    private var isTableReady = false
     
     // Overlays
     private var overlayContainer: NSView!
@@ -167,6 +169,15 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     }
     
     func update(items: [Item], selection: Set<String>, isLoading: Bool = false) {
+        guard !isUpdating else {
+            print("[NativeFileBrowser] update() skipped to prevent recursion.")
+            return
+        }
+        isUpdating = true
+        defer { isUpdating = false }
+        
+        print("[NativeFileBrowser] update() called with \(items.count) items, selection count: \(selection.count), isLoading: \(isLoading)")
+        
         var sortedItems = items
         if let sortDescriptor = tableView.sortDescriptors.first {
             sortedItems.sort { a, b in
@@ -192,50 +203,84 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         self.items = sortedItems
         
         if changed {
+            print("[NativeFileBrowser] Data changed. Reloading table.")
             tableView.reloadData()
         }
         
         if isLoading {
             overlayContainer.isHidden = false
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                overlayContainer.animator().alphaValue = 1.0
+            if isTableReady {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.2
+                    overlayContainer.animator().alphaValue = 1.0
+                }
+            } else {
+                overlayContainer.alphaValue = 1.0
             }
             loadingSpinner.startAnimation(nil)
             emptyStateLabel.isHidden = true
         } else {
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.2
-                overlayContainer.animator().alphaValue = 0.0
-            }, completionHandler: {
-                if !isLoading {
-                    self.overlayContainer.isHidden = true
-                }
-            })
+            if isTableReady {
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.2
+                    overlayContainer.animator().alphaValue = 0.0
+                }, completionHandler: {
+                    if !isLoading {
+                        self.overlayContainer.isHidden = true
+                    }
+                })
+            } else {
+                overlayContainer.alphaValue = 0.0
+                overlayContainer.isHidden = true
+            }
             loadingSpinner.stopAnimation(nil)
             
             if self.items.isEmpty {
-                emptyStateLabel.alphaValue = 0.0
                 emptyStateLabel.isHidden = false
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.2
-                    emptyStateLabel.animator().alphaValue = 1.0
+                if isTableReady {
+                    NSAnimationContext.runAnimationGroup { context in
+                        context.duration = 0.2
+                        emptyStateLabel.animator().alphaValue = 1.0
+                    }
+                } else {
+                    emptyStateLabel.alphaValue = 1.0
                 }
             } else {
                 emptyStateLabel.isHidden = true
             }
         }
         
-        // Update selection without triggering delegate loop
-        if !isUpdatingSelection {
-            isUpdatingSelection = true
-            let indexSet = IndexSet(selection.compactMap { id in
-                items.firstIndex(where: { $0.id == id })
-            })
-            if tableView.selectedRowIndexes != indexSet {
-                tableView.selectRowIndexes(indexSet, byExtendingSelection: false)
+        // Update selection safely without triggering delegate loop
+        guard !self.items.isEmpty else {
+            if !tableView.selectedRowIndexes.isEmpty {
+                tableView.deselectAll(nil)
             }
-            isUpdatingSelection = false
+            if !isTableReady {
+                isTableReady = true
+                print("[NativeFileBrowser] Table initialization complete.")
+            }
+            return
+        }
+        
+        isUpdatingSelection = true
+        var validIndexes = IndexSet()
+        for id in selection {
+            if let index = self.items.firstIndex(where: { $0.id == id }) {
+                if index >= 0 && index < self.items.count {
+                    validIndexes.insert(index)
+                }
+            }
+        }
+        
+        if tableView.selectedRowIndexes != validIndexes {
+            print("[NativeFileBrowser] Restoring selection to \(validIndexes.count) valid rows.")
+            tableView.selectRowIndexes(validIndexes, byExtendingSelection: false)
+        }
+        isUpdatingSelection = false
+        
+        if !isTableReady {
+            isTableReady = true
+            print("[NativeFileBrowser] Table initialization complete.")
         }
     }
     
@@ -268,6 +313,11 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     
     // MARK: - NSTableViewDelegate
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        guard isTableReady else {
+            print("[NativeFileBrowser] Ignored sortDescriptorsDidChange because table is initializing.")
+            return
+        }
+        print("[NativeFileBrowser] sortDescriptorsDidChange triggered. New keys: \(tableView.sortDescriptors.compactMap { $0.key })")
         // Re-sort current items based on new descriptors
         update(items: self.items, selection: currentSelectionSet())
     }

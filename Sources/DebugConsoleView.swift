@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct DebugConsoleView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var logger = DebugLogger.shared
+    
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             HStack {
                 Text("Developer Debug Console")
                     .font(.title2)
@@ -16,6 +18,9 @@ struct DebugConsoleView: View {
                 }
             }
             .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            
+            Divider()
             
             Form {
                 Section(header: Text("Last Operation Summary")) {
@@ -65,8 +70,30 @@ struct DebugConsoleView: View {
                     .foregroundColor(.secondary)
                 }
             }
+            .textSelection(.enabled)
+            
+            Divider()
+            
+            HStack {
+                Spacer()
+                Button("Close") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction) // Matches ESC
+                .buttonStyle(.borderedProminent)
+                
+                // Invisible button to capture Cmd+W
+                Button("") {
+                    dismiss()
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
         }
-        .frame(minWidth: 400, minHeight: 500)
+        .frame(minWidth: 500, minHeight: 600)
     }
     
     private func exportDebugLog() {
