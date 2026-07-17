@@ -1,5 +1,12 @@
 # Changelog
 
+## Public Beta 1
+✓ Professional About Window with Live System Diagnostics
+✓ macOS Menu Bar Integration (ApplicationMenu)
+✓ Application Identity & Typography Polish
+✓ NSTableView Initialization Crash Fixes
+✓ Safe Selection Restoration & Recursion Prevention
+
 ## Beta-1 Stable Baseline
 ✓ Device Detection
 ✓ Android File Browser

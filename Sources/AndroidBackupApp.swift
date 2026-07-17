@@ -10,17 +10,17 @@ struct AndroidBackupApp: App {
         }
         .windowStyle(.hiddenTitleBar) // Modern macOS styling
         .commands {
-            CommandGroup(replacing: .appInfo) {
-                Button("About Android Backup") {
-                    openWindow(id: "about")
-                }
-            }
+            ApplicationMenu()
         }
         
         Window("About Android Backup", id: "about") {
-            AboutView()
+            AboutWindow()
         }
         .windowResizability(.contentSize)
         .windowStyle(.hiddenTitleBar)
+        
+        Settings {
+            SettingsView()
+        }
     }
 }
