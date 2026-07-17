@@ -95,6 +95,10 @@ struct FileManagerView: View {
                             }
                         } contextMenuProvider: { selection in
                             return buildContextMenu(selection: selection)
+                        } onCopy: {
+                            ClipboardService.shared.copy(paths: Array(viewModel.selectedFileIDs), platform: .android, deviceSerial: deviceManager.selectedDevice?.serial)
+                        } onPaste: {
+                            performPaste()
                         }
                         // Menu is handled by NativeFileBrowser now
                         .frame(minWidth: 400, maxHeight: .infinity)

@@ -2,9 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var adbManager = ADBManager.shared
-    @AppStorage("isDarkMode") private var isDarkMode = false
-    @AppStorage("parallelWorkers") private var parallelWorkers: Int = 1
-    @AppStorage("manualAdbPath") private var manualAdbPath: String = ""
+    @ObservedObject var settings = SettingsManager.shared
     
     @State private var showingDebugConsole = false
     @State private var showingConnectionDiagnostics = false
@@ -14,7 +12,7 @@ struct SettingsView: View {
     @State private var deviceDetected: Bool = false
     
     private var adbSource: String {
-        if adbManager.adbPath == manualAdbPath && !manualAdbPath.isEmpty {
+        if adbManager.adbPath == settings.manualAdbPath && !settings.manualAdbPath.isEmpty {
             return "User Configured"
         } else if adbManager.adbPath.contains("/opt/homebrew") {
             return "Homebrew (Auto-detected)"
@@ -51,9 +49,9 @@ struct SettingsView: View {
                         HStack {
                             Text("Active Path:")
                                 .frame(width: 100, alignment: .trailing)
-                            TextField("e.g. /opt/homebrew/bin/adb", text: $manualAdbPath)
+                            TextField("e.g. /opt/homebrew/bin/adb", text: $settings.manualAdbPath)
                                 .textFieldStyle(.roundedBorder)
-                                .onChange(of: manualAdbPath) { _ in
+                                .onChange(of: settings.manualAdbPath) { _ in
                                     Task { await adbManager.discoverADB() }
                                 }
                         }
@@ -131,7 +129,7 @@ struct SettingsView: View {
                 
                 GroupBox("Transfer Settings") {
                     HStack {
-                        Picker("Parallel Workers", selection: $parallelWorkers) {
+                        Picker("Parallel Workers", selection: $settings.parallelWorkers) {
                             Text("1 (Safe/Sequential)").tag(1)
                             Text("2").tag(2)
                             Text("4").tag(4)
@@ -150,7 +148,7 @@ struct SettingsView: View {
                 }
                 
                 GroupBox("Appearance") {
-                    Toggle("Force Dark Mode", isOn: $isDarkMode)
+                    Toggle("Force Dark Mode", isOn: $settings.isDarkMode)
                         .padding(8)
                         .help("Override system appearance and force the application to use dark mode.")
                 }
@@ -189,8 +187,8 @@ struct SettingsView: View {
         }
         
         // Populate manual path if it was empty but adbManager auto-discovered one
-        if manualAdbPath.isEmpty && !adbManager.adbPath.isEmpty {
-            manualAdbPath = adbManager.adbPath
+        if settings.manualAdbPath.isEmpty && !adbManager.adbPath.isEmpty {
+            settings.manualAdbPath = adbManager.adbPath
         }
     }
 }

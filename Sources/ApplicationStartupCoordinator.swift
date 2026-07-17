@@ -28,8 +28,29 @@ class ApplicationStartupCoordinator: ObservableObject {
         Task {
             print("[ApplicationStartupCoordinator] Application launched")
             
-            // 1. Initializing ADB
+            // 1. BackupDatabase
+            do {
+                try BackupDatabase.shared.initialize()
+                print("[ApplicationStartupCoordinator] BackupDatabase initialized")
+            } catch {
+                state = .error("Failed to initialize database: \(error.localizedDescription)")
+                return
+            }
+            
+            // 2. ApplicationSettings (SettingsManager)
+            SettingsManager.shared.loadAllSettings()
+            print("[ApplicationStartupCoordinator] SettingsManager initialized")
+            
+            // 3. ADBManager
             state = .initializingADB
+            
+            // If manual path was set in settings, adbManager should prioritize it
+            // ADBManager could be injected or we just configure it here if needed.
+            // For now, discoverADB handles auto-discovery or we could inject the path.
+            if !SettingsManager.shared.manualAdbPath.isEmpty {
+                adbManager.adbPath = SettingsManager.shared.manualAdbPath
+            }
+            
             _ = await adbManager.discoverADB()
             print("[ApplicationStartupCoordinator] ADB initialized. Path: \(adbManager.adbPath)")
             
@@ -40,22 +61,26 @@ class ApplicationStartupCoordinator: ObservableObject {
                 print("[ApplicationStartupCoordinator] ADB server started")
             }
             
-            // 2. Detecting Devices
+            // 4. DeviceManager
             state = .detectingDevices
             await deviceManager.refreshDevices()
+            
+            // 5. BackupRepository & BackupManager
+            BackupManager.shared.initialize()
+            print("[ApplicationStartupCoordinator] BackupRepository and BackupManager initialized")
             
             if let device = deviceManager.selectedDevice {
                 print("[ApplicationStartupCoordinator] Device selected: \(device.model) (\(device.serial))")
                 
-                // 3. Loading Initial Directory
+                // Load Initial Directory
                 state = .loadingInitialDirectory
-                
                 let dirService = DirectoryService(device: device)
                 do {
                     let files = try await dirService.listDirectory("/")
                     await DirectoryCache.shared.setAndroidCache(for: "/", files: files)
                     print("[ApplicationStartupCoordinator] Initial directory loaded and cache initialized")
                     
+                    // 6. Shared ApplicationState -> Ready
                     state = .ready
                     print("[ApplicationStartupCoordinator] Application ready")
                 } catch {
@@ -68,7 +93,6 @@ class ApplicationStartupCoordinator: ObservableObject {
                 state = .noDevice
             }
             
-            // 4. Start Background Polling for devices changing
             deviceManager.startBackgroundPolling()
         }
     }

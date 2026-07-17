@@ -171,7 +171,7 @@ class TransferService: ObservableObject {
                     // Simplistic check for now, ideally we'd stat the specific file
                     // But to avoid N network calls, we consider it new unless Backup DB knows it, or we do a batch stat.
                     // For now, use the DB if available, otherwise assume new (Mode 1 Fast without extra ADB overhead).
-                    if let record = try? DatabaseManager.shared.getRecord(deviceSerial: device.serial, relativePath: job.relativePath) {
+                    if let record = try? BackupRepository.shared.getFile(deviceSerial: device.serial, relativePath: job.relativePath) {
                         if record.size == job.size {
                             isDuplicate = true
                         } else {
@@ -279,8 +279,9 @@ class TransferService: ObservableObject {
                 currentFileBytesCopied = job.size // Ensure it reaches 100%
                 
                 if plan.isBackup {
-                    let record = FileRecord(
+                    let record = BackupFile(
                         deviceSerial: plan.device.serial,
+                        sessionId: nil,
                         relativePath: job.relativePath,
                         filename: URL(fileURLWithPath: job.relativePath).lastPathComponent,
                         size: job.size,
@@ -290,7 +291,7 @@ class TransferService: ObservableObject {
                         destinationFolder: plan.destination.path,
                         verificationStatus: "Unverified"
                     )
-                    try? DatabaseManager.shared.saveRecord(record)
+                    try? BackupRepository.shared.saveFile(record)
                 }
                 
                 copiedFiles += 1

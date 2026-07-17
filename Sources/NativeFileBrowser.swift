@@ -8,6 +8,8 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
     
     var onDoubleClick: (Item) -> Void
     var contextMenuProvider: (Set<String>) -> NSMenu?
+    var onCopy: (() -> Void)? = nil
+    var onPaste: (() -> Void)? = nil
     
     func makeNSViewController(context: Context) -> FileBrowserViewController<Item> {
         let vc = FileBrowserViewController<Item>()
@@ -18,6 +20,8 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
         }
         vc.onDoubleClick = onDoubleClick
         vc.contextMenuProvider = contextMenuProvider
+        vc.onCopy = onCopy
+        vc.onPaste = onPaste
         return vc
     }
     
@@ -25,6 +29,8 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
         nsViewController.update(items: items, selection: selection, isLoading: isLoading)
         nsViewController.onDoubleClick = onDoubleClick
         nsViewController.contextMenuProvider = contextMenuProvider
+        nsViewController.onCopy = onCopy
+        nsViewController.onPaste = onPaste
     }
 }
 
@@ -38,6 +44,8 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     var onSelectionChange: ((Set<String>) -> Void)?
     var onDoubleClick: ((Item) -> Void)?
     var contextMenuProvider: ((Set<String>) -> NSMenu?)?
+    var onCopy: (() -> Void)?
+    var onPaste: (() -> Void)?
     
     // Prevent recursive updates
     private var isUpdatingSelection = false
@@ -166,6 +174,28 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         } else {
             super.rightMouseDown(with: event)
         }
+    }
+    
+    @objc func copy(_ sender: Any?) {
+        onCopy?()
+    }
+    
+    @objc func paste(_ sender: Any?) {
+        onPaste?()
+    }
+    
+    override func keyDown(with event: NSEvent) {
+        // Fallback for shortcut keys if the menu isn't catching it
+        if event.modifierFlags.contains(.command) {
+            if event.charactersIgnoringModifiers == "c" {
+                onCopy?()
+                return
+            } else if event.charactersIgnoringModifiers == "v" {
+                onPaste?()
+                return
+            }
+        }
+        super.keyDown(with: event)
     }
     
     func update(items: [Item], selection: Set<String>, isLoading: Bool = false) {

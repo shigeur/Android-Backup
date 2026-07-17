@@ -90,6 +90,10 @@ struct LocalFileManagerView: View {
                     }
                 } contextMenuProvider: { selection in
                     return buildContextMenu(selection: selection)
+                } onCopy: {
+                    ClipboardService.shared.copy(paths: Array(viewModel.selectedFileIDs), platform: .mac)
+                } onPaste: {
+                    performPaste()
                 }
                 // Context Menu handled by NativeFileBrowser
                 .background {

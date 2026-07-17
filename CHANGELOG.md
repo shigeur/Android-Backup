@@ -1,5 +1,9 @@
 # Changelog
 
+## Public Beta 1.0.1
+✓ UI Optimisation
+✓ Fixed copy/paste keyboard shortcuts in File Manager
+
 ## Public Beta 1
 ✓ Professional About Window with Live System Diagnostics
 ✓ macOS Menu Bar Integration (ApplicationMenu)
