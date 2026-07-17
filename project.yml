@@ -1,0 +1,14 @@
+name: AndroidBackup
+options:
+  bundleIdPrefix: com.example
+targets:
+  AndroidBackup:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources: [Sources, Assets.xcassets]
+    settings:
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
+      INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Example"
