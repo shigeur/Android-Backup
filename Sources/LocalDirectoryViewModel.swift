@@ -66,4 +66,39 @@ class LocalDirectoryViewModel: ObservableObject {
         guard let current = currentURL else { return }
         loadDirectory(current)
     }
+    
+    func reloadCurrentDirectory(selecting newFileID: String? = nil, fallbackIndex: Int? = nil) {
+        guard let current = currentURL else { return }
+        
+        print("[DEBUG-SYNC] 1. reloadCurrentDirectory() called for \(current.path). Target selection: \(newFileID ?? "nil")")
+        
+        Task {
+            do {
+                let fetchedFiles = try directoryService.listDirectory(current)
+                print("[DEBUG-SYNC] 2. Fetched \(fetchedFiles.count) files from disk.")
+                
+                if self.files != fetchedFiles {
+                    print("[DEBUG-SYNC] 3. Data differs. Replacing self.files array. Old count: \(self.files.count), New count: \(fetchedFiles.count)")
+                    self.files = fetchedFiles
+                    await DirectoryCache.shared.setMacCache(for: current.path, files: fetchedFiles)
+                    print("[DEBUG-SYNC] 4. New snapshot published to observers.")
+                } else {
+                    print("[DEBUG-SYNC] 3. Data is identical (self.files == fetchedFiles). No array replacement.")
+                }
+                
+                if let newFile = newFileID {
+                    print("[DEBUG-SYNC] 5. Updating selection to \(newFile)")
+                    self.selectedFileIDs = [newFile]
+                } else if let idx = fallbackIndex, !fetchedFiles.isEmpty {
+                    let safeIdx = min(idx, fetchedFiles.count - 1)
+                    self.selectedFileIDs = [fetchedFiles[safeIdx].id]
+                    print("[DEBUG-SYNC] 5. Updating selection to nearest index \(safeIdx)")
+                } else if fallbackIndex != nil {
+                    self.selectedFileIDs = []
+                }
+            } catch {
+                print("[DEBUG-SYNC] Failed to reload directory: \(error)")
+            }
+        }
+    }
 }

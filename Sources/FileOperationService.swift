@@ -89,24 +89,51 @@ class FileOperationService: ObservableObject {
         }
     }
     
-    func newMacFolder(parentURL: URL, name: String) async {
+    func newMacFolder(parentURL: URL, name: String) async throws -> URL {
+        let startTime = Date()
         let newURL = parentURL.appendingPathComponent(name)
         do {
             try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: false)
             await DirectoryCache.shared.invalidateMacCache(for: parentURL.path)
+            
+            let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+            print("[DebugLogger] Folder Created: \(name) in \(parentURL.path) (Execution Time: \(durationMs)ms)")
+            
+            return newURL
         } catch {
+            let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+            print("[DebugLogger] Folder Creation Failed: \(name) in \(parentURL.path) (Execution Time: \(durationMs)ms) - Error: \(error.localizedDescription)")
             self.error = error.localizedDescription
+            throw error
         }
     }
     
-    func newAndroidFolder(device: AndroidDevice, parentPath: String, name: String) async {
+    func newAndroidFolder(device: AndroidDevice, parentPath: String, name: String) async throws -> String {
+        let startTime = Date()
         let newPath = (parentPath as NSString).appendingPathComponent(name)
         do {
             let cmd = ["-s", device.serial, "shell", "mkdir", "'\(newPath)'"]
             _ = try await ADBManager.shared.run(cmd)
             await DirectoryCache.shared.invalidateAndroidCache(for: parentPath)
+            
+            let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+            print("[DebugLogger] Android Folder Created: \(name) in \(parentPath) (Execution Time: \(durationMs)ms)")
+            
+            return newPath
+        } catch let err as ADBError {
+            let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+            var exitCode = -1
+            if case .executionFailed(let code, _) = err {
+                exitCode = Int(code)
+            }
+            print("[DebugLogger] Android Folder Creation Failed: \(name) in \(parentPath) (Execution Time: \(durationMs)ms) - Exit Code: \(exitCode) - Error: \(err.localizedDescription)")
+            self.error = err.localizedDescription
+            throw err
         } catch {
+            let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+            print("[DebugLogger] Android Folder Creation Failed: \(name) in \(parentPath) (Execution Time: \(durationMs)ms) - Error: \(error.localizedDescription)")
             self.error = error.localizedDescription
+            throw error
         }
     }
     
@@ -132,5 +159,48 @@ class FileOperationService: ObservableObject {
         for parent in parents {
             await DirectoryCache.shared.invalidateMacCache(for: parent)
         }
+    }
+    
+    func copyMacFiles(urls: [URL], to destination: URL) async {
+        isOperating = true
+        let total = urls.count
+        var count = 0
+        for url in urls {
+            let newURL = destination.appendingPathComponent(url.lastPathComponent)
+            do {
+                try FileManager.default.copyItem(at: url, to: newURL)
+            } catch {
+                print("Failed to copy \(url) to \(newURL): \(error)")
+                self.error = error.localizedDescription
+            }
+            count += 1
+            operationProgress = Double(count) / Double(total)
+        }
+        isOperating = false
+        await DirectoryCache.shared.invalidateMacCache(for: destination.path)
+    }
+    
+    func moveMacFiles(urls: [URL], to destination: URL) async {
+        isOperating = true
+        let total = urls.count
+        var count = 0
+        for url in urls {
+            let newURL = destination.appendingPathComponent(url.lastPathComponent)
+            do {
+                try FileManager.default.moveItem(at: url, to: newURL)
+            } catch {
+                print("Failed to move \(url) to \(newURL): \(error)")
+                self.error = error.localizedDescription
+            }
+            count += 1
+            operationProgress = Double(count) / Double(total)
+        }
+        isOperating = false
+        
+        let oldParents = Set(urls.map { $0.deletingLastPathComponent().path })
+        for parent in oldParents {
+            await DirectoryCache.shared.invalidateMacCache(for: parent)
+        }
+        await DirectoryCache.shared.invalidateMacCache(for: destination.path)
     }
 }

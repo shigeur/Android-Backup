@@ -22,59 +22,27 @@ class DeviceManager: ObservableObject {
     
     private init() {}
     
-    func startBackgroundPolling() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.refreshDevices()
-            }
-        }
+    func clearSelection() {
+        selectedDevice = nil
+        connectedDevices = []
     }
     
-    func refreshDevices() async {
+    func initializeDevice(_ device: AndroidDevice) async -> Bool {
         do {
-            let output = try await ADBManager.shared.run(["devices", "-l"])
-            let lines = output.components(separatedBy: .newlines)
-            var newDevices: [AndroidDevice] = []
+            let populatedDevice = await fetchDeviceInfo(device)
+            self.connectedDevices = [populatedDevice]
+            self.selectedDevice = populatedDevice
             
-            for line in lines {
-                if line.starts(with: "List of devices") || line.trimmingCharacters(in: .whitespaces).isEmpty {
-                    continue
-                }
-                
-                let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-                guard parts.count >= 2 else { continue }
-                
-                let serial = String(parts[0])
-                let status = String(parts[1])
-                var model = "Unknown Device"
-                
-                for part in parts {
-                    if part.starts(with: "model:") {
-                        model = String(part.dropFirst("model:".count)).replacingOccurrences(of: "_", with: " ")
-                    }
-                }
-                
-                var device = AndroidDevice(serial: serial, model: model, status: status)
-                
-                // If device is active, fetch more info
-                if status == "device" {
-                    device = await fetchDeviceInfo(device)
-                }
-                
-                newDevices.append(device)
-            }
+            // Load Initial Directory
+            let dirService = DirectoryService(device: populatedDevice)
+            let files = try await dirService.listDirectory("/")
+            await DirectoryCache.shared.setAndroidCache(for: "/", files: files)
+            print("[\(Date())] Directory Loaded")
             
-            self.connectedDevices = newDevices
-            
-            if let selected = selectedDevice, !newDevices.contains(where: { $0.serial == selected.serial }) {
-                self.selectedDevice = nil
-            } else if selectedDevice == nil, let first = newDevices.first {
-                self.selectedDevice = first
-            }
-            
+            return true
         } catch {
-            print("Failed to fetch devices: \(error)")
+            print("[DeviceManager] Error loading initial directory: \(error)")
+            return false
         }
     }
     

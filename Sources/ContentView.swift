@@ -1,56 +1,68 @@
 import SwiftUI
 
 struct ContentView: View {
-    @StateObject private var coordinator = ApplicationStartupCoordinator.shared
-    @State private var selectedTab: String? = "filemanager"
+    @StateObject private var appCoordinator = ApplicationStartupCoordinator.shared
+    @StateObject private var deviceLifecycle = DeviceLifecycleManager.shared
+    @State private var selectedTab: String? = "dualpane"
     
     var body: some View {
         Group {
-            switch coordinator.state {
-            case .launching, .initializingADB, .detectingDevices, .loadingInitialDirectory:
-                LoadingStateView(state: coordinator.state)
-            case .noDevice:
-                EmptyDeviceView()
-            case .error(let message):
-                ErrorStateView(message: message)
-            case .ready:
-                NavigationSplitView {
-                    List(selection: $selectedTab) {
-                        NavigationLink("Devices", value: "devices")
-                        NavigationLink("File Manager", value: "filemanager")
-                        NavigationLink("Dual Pane", value: "dualpane")
-                        NavigationLink("Backup", value: "backup")
-                        NavigationLink("History", value: "history")
-                        NavigationLink("Settings", value: "settings")
-                    }
-                    .navigationTitle("Android Backup")
-                } detail: {
-                    if selectedTab == "devices" {
-                        if let device = DeviceManager.shared.selectedDevice {
-                            DeviceInfoView(device: device)
-                        } else {
-                            EmptyDeviceView()
+            if appCoordinator.state == .ready {
+                // Let DeviceLifecycleManager handle UI now
+                switch deviceLifecycle.state {
+                case .idle, .searching, .disconnected, .unauthorized, .adbMissing, .adbOffline, .error:
+                    EmptyDeviceView()
+                case .connected(let device), .initializing(let device):
+                    VStack(spacing: 20) {
+                        ProgressView().scaleEffect(1.5)
+                        Text("Initializing \(device.model)...").font(.headline)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .ready(let device):
+                    NavigationSplitView {
+                        List(selection: $selectedTab) {
+                            NavigationLink("Devices", value: "devices")
+                            // File Manager temporarily hidden.
+                            // Will be re-enabled after UI synchronization issues are resolved.
+                            NavigationLink("Dual Pane", value: "dualpane")
+                            NavigationLink("Backup", value: "backup")
+                            NavigationLink("History", value: "history")
+                            NavigationLink("Settings", value: "settings")
                         }
-                    } else if selectedTab == "filemanager" {
-                        StandaloneFileManagerView()
-                    } else if selectedTab == "dualpane" {
-                        DualPaneView()
-                    } else if selectedTab == "backup" {
-                        BackupView(deviceManager: DeviceManager.shared)
-                    } else if selectedTab == "history" {
-                        HistoryView()
-                    } else if selectedTab == "settings" {
-                        SettingsView()
-                    } else {
-                        Text("Select an item from the sidebar")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .navigationTitle("Android Backup")
+                    } detail: {
+                        if selectedTab == "devices" {
+                            DeviceInfoView(device: device)
+                        } else if selectedTab == "filemanager" {
+                            StandaloneFileManagerView()
+                        } else if selectedTab == "dualpane" {
+                            DualPaneView()
+                        } else if selectedTab == "backup" {
+                            BackupView(deviceManager: DeviceManager.shared)
+                        } else if selectedTab == "history" {
+                            HistoryView()
+                        } else if selectedTab == "settings" {
+                            SettingsView()
+                        } else {
+                            Text("Select an item from the sidebar")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
                     }
+                }
+            } else {
+                // App is still launching
+                switch appCoordinator.state {
+                case .launching, .initializingADB:
+                    LoadingStateView(state: appCoordinator.state)
+                case .error(let message):
+                    ErrorStateView(message: message)
+                default:
+                    EmptyView()
                 }
             }
         }
         .frame(minWidth: 900, minHeight: 600)
         .onAppear {
-            coordinator.start()
+            appCoordinator.start()
         }
     }
 }
@@ -62,8 +74,6 @@ struct LoadingStateView: View {
         switch state {
         case .launching: return "Starting up..."
         case .initializingADB: return "Initializing Android Debug Bridge..."
-        case .detectingDevices: return "Detecting Android devices..."
-        case .loadingInitialDirectory: return "Loading initial directory..."
         default: return "Loading..."
         }
     }
@@ -97,21 +107,6 @@ struct ErrorStateView: View {
                 ApplicationStartupCoordinator.shared.state = .launching
                 ApplicationStartupCoordinator.shared.start()
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct EmptyDeviceView: View {
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "candybarphone")
-                .font(.system(size: 64))
-                .foregroundColor(.secondary)
-            Text("No Android Device Connected")
-                .font(.title2)
-            Text("Please connect your device via USB and ensure USB Debugging is enabled.")
-                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

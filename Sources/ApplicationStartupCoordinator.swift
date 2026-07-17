@@ -4,10 +4,7 @@ import Combine
 enum ApplicationState: Equatable {
     case launching
     case initializingADB
-    case detectingDevices
-    case loadingInitialDirectory
     case ready
-    case noDevice
     case error(String)
 }
 
@@ -18,12 +15,13 @@ class ApplicationStartupCoordinator: ObservableObject {
     @Published var state: ApplicationState = .launching
     
     private let adbManager = ADBManager.shared
-    private let deviceManager = DeviceManager.shared
     
     private init() {}
     
     func start() {
-        guard state == .launching else { return }
+        guard state == .launching || state == .error("") else { return } // Allow retry on error
+        
+        state = .launching
         
         Task {
             print("[ApplicationStartupCoordinator] Application launched")
@@ -44,9 +42,6 @@ class ApplicationStartupCoordinator: ObservableObject {
             // 3. ADBManager
             state = .initializingADB
             
-            // If manual path was set in settings, adbManager should prioritize it
-            // ADBManager could be injected or we just configure it here if needed.
-            // For now, discoverADB handles auto-discovery or we could inject the path.
             if !SettingsManager.shared.manualAdbPath.isEmpty {
                 adbManager.adbPath = SettingsManager.shared.manualAdbPath
             }
@@ -59,41 +54,20 @@ class ApplicationStartupCoordinator: ObservableObject {
                     print("[ApplicationStartupCoordinator] ADB version detected: \(version.components(separatedBy: .newlines).first ?? "")")
                 }
                 print("[ApplicationStartupCoordinator] ADB server started")
+            } else {
+                state = .error("ADB not found. Please install Android Platform Tools.")
+                return
             }
             
-            // 4. DeviceManager
-            state = .detectingDevices
-            await deviceManager.refreshDevices()
-            
-            // 5. BackupRepository & BackupManager
+            // 4. BackupRepository & BackupManager
             BackupManager.shared.initialize()
             print("[ApplicationStartupCoordinator] BackupRepository and BackupManager initialized")
             
-            if let device = deviceManager.selectedDevice {
-                print("[ApplicationStartupCoordinator] Device selected: \(device.model) (\(device.serial))")
-                
-                // Load Initial Directory
-                state = .loadingInitialDirectory
-                let dirService = DirectoryService(device: device)
-                do {
-                    let files = try await dirService.listDirectory("/")
-                    await DirectoryCache.shared.setAndroidCache(for: "/", files: files)
-                    print("[ApplicationStartupCoordinator] Initial directory loaded and cache initialized")
-                    
-                    // 6. Shared ApplicationState -> Ready
-                    state = .ready
-                    print("[ApplicationStartupCoordinator] Application ready")
-                } catch {
-                    print("[ApplicationStartupCoordinator] Error loading initial directory: \(error)")
-                    state = .error("Failed to load initial directory: \(error.localizedDescription)")
-                }
-                
-            } else {
-                print("[ApplicationStartupCoordinator] No device detected")
-                state = .noDevice
-            }
+            // 5. Shared ApplicationState -> Ready
+            state = .ready
+            print("[ApplicationStartupCoordinator] Application ready. Handing off to DeviceLifecycleManager.")
             
-            deviceManager.startBackgroundPolling()
+            DeviceLifecycleManager.shared.startSearch()
         }
     }
 }

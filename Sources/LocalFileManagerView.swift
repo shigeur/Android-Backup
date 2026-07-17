@@ -11,6 +11,13 @@ struct LocalFileManagerView: View {
     @State private var itemToRename: URL? = nil
     @State private var newName: String = ""
     
+    @State private var showNewFolderSheet = false
+    @State private var operationError: String? = nil
+    
+    private var coordinator: LocalDirectoryMutationCoordinator {
+        LocalDirectoryMutationCoordinator(viewModel: viewModel)
+    }
+    
     // We statically define the root as HOME since Sandbox is off
     private var rootURL: URL {
         URL(fileURLWithPath: ProcessInfo.processInfo.environment["HOME"] ?? "/")
@@ -119,13 +126,44 @@ struct LocalFileManagerView: View {
                         Button(action: { viewModel.refresh() }) { }
                             .keyboardShortcut("r", modifiers: .command)
                             
+                        Button(action: { showNewFolderSheet = true }) { }
+                            .keyboardShortcut("n", modifiers: [.command, .shift])
+                            
                         Button(action: {
                             let urls = viewModel.selectedFileIDs.map { URL(fileURLWithPath: $0) }
-                            Task { await FileOperationService.shared.duplicateMacFiles(urls: Array(urls)) }
+                            Task {
+                                do { try await coordinator.duplicate(urls: Array(urls)) }
+                                catch { operationError = error.localizedDescription }
+                            }
                         }) { }
                             .keyboardShortcut("d", modifiers: .command)
                     }
                     .opacity(0)
+                }
+                .sheet(isPresented: $showNewFolderSheet) {
+                    NewFolderSheet(
+                        parentURL: viewModel.currentURL,
+                        parentPath: nil,
+                        platform: .mac,
+                        onCancel: {
+                            showNewFolderSheet = false
+                            if let path = viewModel.currentURL?.path {
+                                print("[DebugLogger] Folder Creation Cancelled in \(path)")
+                            } else {
+                                print("[DebugLogger] Folder Creation Cancelled")
+                            }
+                        },
+                        onCreate: { name in
+                            Task {
+                                do {
+                                    try await coordinator.createFolder(name: name)
+                                    showNewFolderSheet = false
+                                } catch {
+                                    operationError = error.localizedDescription
+                                }
+                            }
+                        }
+                    )
                 }
                 
                 // Loading handled in NativeFileBrowser
@@ -167,7 +205,10 @@ struct LocalFileManagerView: View {
             Button("Cancel", role: .cancel) { }
             Button("Move to Trash", role: .destructive) {
                 let urls = itemsToDelete.map { URL(fileURLWithPath: $0) }
-                Task { await FileOperationService.shared.deleteMacFiles(urls: urls) }
+                Task {
+                    do { try await coordinator.delete(urls: urls) }
+                    catch { operationError = error.localizedDescription }
+                }
             }
         } message: {
             Text("These items will be moved to the Trash.")
@@ -177,11 +218,26 @@ struct LocalFileManagerView: View {
             Button("Cancel", role: .cancel) { }
             Button("Rename") {
                 if let url = itemToRename {
-                    Task { await FileOperationService.shared.renameMacFile(url: url, newName: newName) }
+                    Task {
+                        do { try await coordinator.rename(url: url, newName: newName) }
+                        catch { operationError = error.localizedDescription }
+                    }
                 }
             }
         } message: {
             Text("Enter a new name for this item.")
+        }
+        .alert(
+            "Operation Failed",
+            isPresented: Binding<Bool>(
+                get: { operationError != nil },
+                set: { if !$0 { operationError = nil } }
+            ),
+            presenting: operationError
+        ) { _ in
+            Button("OK", role: .cancel) { }
+        } message: { errorMsg in
+            Text(errorMsg)
         }
     }
     
@@ -286,7 +342,10 @@ struct LocalFileManagerView: View {
         
         let duplicateItem = ClosureMenuItem(title: "Duplicate", keyEquivalent: "d") {
             let urls = selection.map { URL(fileURLWithPath: $0) }
-            Task { await FileOperationService.shared.duplicateMacFiles(urls: Array(urls)) }
+            Task {
+                do { try await self.coordinator.duplicate(urls: Array(urls)) }
+                catch { self.operationError = error.localizedDescription }
+            }
         }
         duplicateItem.isEnabled = !selection.isEmpty
         menu.addItem(duplicateItem)
@@ -300,9 +359,7 @@ struct LocalFileManagerView: View {
         menu.addItem(NSMenuItem.separator())
         
         let newFolderItem = ClosureMenuItem(title: "New Folder", keyEquivalent: "") {
-            if let cur = self.viewModel.currentURL {
-                Task { await FileOperationService.shared.newMacFolder(parentURL: cur, name: "New Folder") }
-            }
+            self.showNewFolderSheet = true
         }
         menu.addItem(newFolderItem)
         

@@ -61,4 +61,30 @@ class DirectoryViewModel: ObservableObject {
         let upPath = URL(fileURLWithPath: currentPath).deletingLastPathComponent().path
         loadDirectory(upPath == "" ? "/" : upPath)
     }
+    
+    func reloadCurrentDirectory(selecting newFileID: String? = nil, fallbackIndex: Int? = nil) {
+        let path = currentPath
+        
+        Task {
+            do {
+                let fetchedFiles = try await directoryService.listDirectory(path)
+                
+                if self.files != fetchedFiles {
+                    self.files = fetchedFiles
+                    await DirectoryCache.shared.setAndroidCache(for: path, files: fetchedFiles)
+                }
+                
+                if let newFile = newFileID {
+                    self.selectedFileIDs = [newFile]
+                } else if let idx = fallbackIndex, !fetchedFiles.isEmpty {
+                    let safeIdx = min(idx, fetchedFiles.count - 1)
+                    self.selectedFileIDs = [fetchedFiles[safeIdx].id]
+                } else if fallbackIndex != nil {
+                    self.selectedFileIDs = []
+                }
+            } catch {
+                print("[DirectoryViewModel] Failed to reload directory: \(error)")
+            }
+        }
+    }
 }

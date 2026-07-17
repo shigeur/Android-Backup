@@ -199,14 +199,14 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     }
     
     func update(items: [Item], selection: Set<String>, isLoading: Bool = false) {
+        print("[DEBUG-SYNC] 6. NativeFileBrowser update() called with \(items.count) items, isLoading: \(isLoading)")
+        
         guard !isUpdating else {
-            print("[NativeFileBrowser] update() skipped to prevent recursion.")
+            print("[DEBUG-SYNC] X. update() skipped due to isUpdating recursion guard.")
             return
         }
         isUpdating = true
         defer { isUpdating = false }
-        
-        print("[NativeFileBrowser] update() called with \(items.count) items, selection count: \(selection.count), isLoading: \(isLoading)")
         
         var sortedItems = items
         if let sortDescriptor = tableView.sortDescriptors.first {
@@ -233,8 +233,10 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         self.items = sortedItems
         
         if changed {
-            print("[NativeFileBrowser] Data changed. Reloading table.")
+            print("[DEBUG-SYNC] 7. Data changed. Calling NSTableView.reloadData().")
             tableView.reloadData()
+        } else {
+            print("[DEBUG-SYNC] 7. Data did not change. Skipping NSTableView.reloadData().")
         }
         
         if isLoading {
@@ -292,21 +294,36 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
             return
         }
         
-        isUpdatingSelection = true
-        var validIndexes = IndexSet()
-        for id in selection {
-            if let index = self.items.firstIndex(where: { $0.id == id }) {
-                if index >= 0 && index < self.items.count {
-                    validIndexes.insert(index)
+        let applySelection = { [weak self] in
+            guard let self = self else { return }
+            self.isUpdatingSelection = true
+            defer { self.isUpdatingSelection = false }
+            
+            var validIndexes = IndexSet()
+            for id in selection {
+                if let index = self.items.firstIndex(where: { $0.id == id }) {
+                    if index >= 0 && index < self.items.count {
+                        validIndexes.insert(index)
+                    }
+                }
+            }
+            
+            if self.tableView.selectedRowIndexes != validIndexes {
+                print("[NativeFileBrowser] Restoring selection to \(validIndexes.count) valid rows.")
+                self.tableView.selectRowIndexes(validIndexes, byExtendingSelection: false)
+                if let firstIndex = validIndexes.first {
+                    self.tableView.scrollRowToVisible(firstIndex)
                 }
             }
         }
         
-        if tableView.selectedRowIndexes != validIndexes {
-            print("[NativeFileBrowser] Restoring selection to \(validIndexes.count) valid rows.")
-            tableView.selectRowIndexes(validIndexes, byExtendingSelection: false)
+        if changed {
+            DispatchQueue.main.async {
+                applySelection()
+            }
+        } else {
+            applySelection()
         }
-        isUpdatingSelection = false
         
         if !isTableReady {
             isTableReady = true
@@ -333,6 +350,7 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     
     // MARK: - NSTableViewDataSource
     func numberOfRows(in tableView: NSTableView) -> Int {
+        print("[DEBUG-SYNC] 8. NSTableView requested numberOfRows. Returning: \(items.count)")
         return items.count
     }
     
@@ -361,6 +379,7 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row < items.count else { return nil }
         let item = items[row]
+        // print("[DEBUG-SYNC] 9. NSTableView requested viewFor row: \(row) - item: \(item.name)")
         
         let identifier = tableColumn?.identifier.rawValue ?? ""
         let viewIdentifier = NSUserInterfaceItemIdentifier("Cell_\(identifier)")

@@ -12,6 +12,13 @@ struct FileManagerView: View {
     @State private var itemToRename: String? = nil
     @State private var newName: String = ""
     
+    @State private var showNewFolderSheet = false
+    @State private var operationError: String? = nil
+    
+    private var coordinator: AndroidDirectoryMutationCoordinator {
+        AndroidDirectoryMutationCoordinator(viewModel: viewModel)
+    }
+    
     var breadcrumbs: [String] {
         let parts = viewModel.currentPath.split(separator: "/").map(String.init)
         var paths: [String] = []
@@ -131,6 +138,9 @@ struct FileManagerView: View {
                                     }
                                 }) { }
                                 .keyboardShortcut(.space, modifiers: [])
+                                
+                                Button(action: { showNewFolderSheet = true }) { }
+                                    .keyboardShortcut("n", modifiers: [.command, .shift])
                             }
                             .opacity(0)
                         }
@@ -176,7 +186,10 @@ struct FileManagerView: View {
                 Button("Delete", role: .destructive) {
                     if let device = deviceManager.selectedDevice {
                         let paths = itemsToDelete
-                        Task { await FileOperationService.shared.deleteAndroidFiles(device: device, paths: paths) }
+                        Task {
+                            do { try await coordinator.delete(paths: paths, device: device) }
+                            catch { operationError = error.localizedDescription }
+                        }
                     }
                 }
             } message: {
@@ -192,6 +205,41 @@ struct FileManagerView: View {
                 }
             } message: {
                 Text("Enter a new name for this item.")
+            }
+            .sheet(isPresented: $showNewFolderSheet) {
+                NewFolderSheet(
+                    parentURL: nil,
+                    parentPath: viewModel.currentPath,
+                    platform: .android,
+                    onCancel: {
+                        showNewFolderSheet = false
+                        print("[DebugLogger] Android Folder Creation Cancelled in \(viewModel.currentPath)")
+                    },
+                    onCreate: { name in
+                        Task {
+                            do {
+                                if let device = deviceManager.selectedDevice {
+                                    try await coordinator.createFolder(name: name, device: device)
+                                    showNewFolderSheet = false
+                                }
+                            } catch {
+                                operationError = error.localizedDescription
+                            }
+                        }
+                    }
+                )
+            }
+            .alert(
+                "Operation Failed",
+                isPresented: Binding<Bool>(
+                    get: { operationError != nil },
+                    set: { if !$0 { operationError = nil } }
+                ),
+                presenting: operationError
+            ) { _ in
+                Button("OK", role: .cancel) { }
+            } message: { errorMsg in
+                Text(errorMsg)
             }
         } else {
             Text("No device connected")
@@ -306,9 +354,7 @@ struct FileManagerView: View {
         menu.addItem(NSMenuItem.separator())
         
         let newFolderItem = ClosureMenuItem(title: "New Folder", keyEquivalent: "") {
-            if let device = self.deviceManager.selectedDevice {
-                Task { await FileOperationService.shared.newAndroidFolder(device: device, parentPath: self.viewModel.currentPath, name: "New Folder") }
-            }
+            self.showNewFolderSheet = true
         }
         menu.addItem(newFolderItem)
         

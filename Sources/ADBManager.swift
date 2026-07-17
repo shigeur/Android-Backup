@@ -115,6 +115,33 @@ class ADBManager: ObservableObject {
         }
     }
     
+    /// Gets a list of currently connected Android devices
+    func getConnectedDevices() async throws -> [AndroidDevice] {
+        let output = try await run(["devices", "-l"])
+        var devices: [AndroidDevice] = []
+        let lines = output.components(separatedBy: .newlines)
+        for line in lines {
+            if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+            if line.hasPrefix("List of devices") { continue }
+            
+            let components = line.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+            if components.count >= 2 {
+                let serial = components[0]
+                let status = components[1]
+                
+                var model = "Unknown Device"
+                for component in components {
+                    if component.hasPrefix("model:") {
+                        model = String(component.dropFirst(6)).replacingOccurrences(of: "_", with: " ")
+                    }
+                }
+                
+                devices.append(AndroidDevice(serial: serial, model: model, status: status))
+            }
+        }
+        return devices
+    }
+    
     /// Executes an ADB command and returns detailed output without throwing on non-zero exit codes.
     func runDetailed(_ arguments: [String]) async throws -> (stdout: String, stderr: String, exitCode: Int32, durationMs: Int) {
         guard FileManager.default.fileExists(atPath: adbPath) else {
