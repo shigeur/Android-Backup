@@ -150,6 +150,9 @@ struct FileManagerView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("AndroidTriggerDelete"))) { _ in
+                triggerDelete(selection: viewModel.selectedFileIDs)
+            }
             // .onAppear removed, viewModel init triggers load
             .alert("Delete \(itemsToDelete.count) selected items?", isPresented: $showDeleteConfirmation) {
                 Button("Cancel", role: .cancel) { }

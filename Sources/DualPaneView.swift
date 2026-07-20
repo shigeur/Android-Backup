@@ -45,9 +45,6 @@ struct DualPaneView: View {
                                 let destURL = URL(fileURLWithPath: destPath)
                                 TransferEngine.shared.executePaste(destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
                             }
-                            .onCommand(Selector("delete:")) {
-                                NotificationCenter.default.post(name: Notification.Name("AndroidTriggerDelete"), object: nil)
-                            }
                             .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                             .onDrop(of: [UTType.fileURL, UTType.plainText], isTargeted: nil) { providers in
                                 print("[DebugLogger] DualPaneView Android Pane received onDrop with \(providers.count) providers")
@@ -115,9 +112,6 @@ struct DualPaneView: View {
                             .onCommand(Selector("paste:")) {
                                 guard let destURL = localViewModel.currentURL else { return }
                                 TransferEngine.shared.executePaste(destPlatform: .mac, destPath: destURL.path, destURL: destURL, onProgress: handleProgress)
-                            }
-                            .onCommand(Selector("delete:")) {
-                                NotificationCenter.default.post(name: Notification.Name("MacTriggerDelete"), object: nil)
                             }
                             .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                             .onDrop(of: [UTType.fileURL, UTType.plainText], isTargeted: nil) { providers in
@@ -237,6 +231,19 @@ struct DualPaneView: View {
                     .cornerRadius(10)
                     .shadow(radius: 10)
                 }
+                
+                // Global keyboard shortcuts
+                Button(action: {
+                    if activePane == .android {
+                        NotificationCenter.default.post(name: Notification.Name("AndroidTriggerDelete"), object: nil)
+                    } else if activePane == .mac {
+                        NotificationCenter.default.post(name: Notification.Name("MacTriggerDelete"), object: nil)
+                    }
+                }) {
+                    Text("")
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .opacity(0)
             }
             .sheet(isPresented: $showSmartSync) {
                 if let localURL = localViewModel.currentURL {
