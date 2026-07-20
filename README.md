@@ -1,12 +1,13 @@
-# Android Backup
+# Android Backup & File Transfer
+<img width="1424" height="807" alt="image" src="https://github.com/user-attachments/assets/d66a914d-9f2d-439a-ba8d-653265820435" />
 
-Android Backup is an open-source macOS application designed to make transferring files between Android devices and macOS significantly faster, easier, and more reliable.
+Android Backup & File Transfer is an open-source macOS application designed to make transferring files between Android devices and macOS significantly faster, easier, and more reliable.
 
 ## The Problem
 Android's standard MTP (Media Transfer Protocol) performs incredibly poorly when transferring large directories containing thousands of small files (like Camera photos, WhatsApp media, or Voice Notes). MTP transfers these files sequentially and struggles under the high overhead, often resulting in agonizingly slow speeds or complete failure.
 
 ## The Solution
-Android Backup bypasses MTP entirely by leveraging the **Android Debug Bridge (ADB)**. This allows for dramatically faster, parallelized transfers and guarantees reliability while providing a native, beautiful macOS interface.
+Android Backup & File Transfer bypasses MTP entirely by leveraging the **Android Debug Bridge (ADB)**. This allows for dramatically faster, parallelized transfers and guarantees reliability while providing a native, beautiful macOS interface.
 
 ## Features
 - **Native macOS Interface:** Built with SwiftUI and AppKit to feel right at home on your Mac.
@@ -19,9 +20,7 @@ Android Backup bypasses MTP entirely by leveraging the **Android Debug Bridge (A
 
 ## Screenshots
 
-<img width="2530" height="1390" alt="Android Backup 1" src="https://github.com/user-attachments/assets/516102d9-436c-4d05-8fce-7a789b1d607b" />
-
-<img width="441" height="353" alt="image" src="https://github.com/user-attachments/assets/fb7bd55c-a296-40cd-9b69-9ff2784e5c63" />
+<img width="1434" height="805" alt="image" src="https://github.com/user-attachments/assets/a6d8524f-11a5-4afc-b8bc-fe7d95734cf3" />
 
 
 ## Requirements
