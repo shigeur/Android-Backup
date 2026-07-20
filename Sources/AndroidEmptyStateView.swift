@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct EmptyDeviceView: View {
+struct AndroidEmptyStateView: View {
     @StateObject private var lifecycle = DeviceLifecycleManager.shared
     @Environment(\.openURL) private var openURL
     
@@ -66,6 +66,12 @@ struct EmptyDeviceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(40)
+        .onAppear {
+            print("[UI] Empty State Shown")
+        }
+        .onDisappear {
+            print("[UI] Empty State Hidden")
+        }
     }
     
     // MARK: - Computed Properties
@@ -88,12 +94,12 @@ struct EmptyDeviceView: View {
     private var iconName: String {
         if isScanning { return "antenna.radiowaves.left.and.right" }
         switch lifecycle.state {
-        case .idle, .disconnected: return "candybarphone"
+        case .idle, .disconnected: return "cable.connector"
         case .unauthorized: return "lock.shield"
         case .adbMissing: return "exclamationmark.triangle"
         case .adbOffline: return "wifi.exclamationmark"
         case .error: return "xmark.octagon"
-        default: return "candybarphone"
+        default: return "cable.connector"
         }
     }
     
@@ -101,7 +107,7 @@ struct EmptyDeviceView: View {
         switch lifecycle.state {
         case .idle, .disconnected: return "No Android Device Connected"
         case .unauthorized: return "Authorization Required"
-        case .adbMissing: return "ADB Not Installed"
+        case .adbMissing: return "Android Platform Tools Not Found"
         case .adbOffline: return "ADB Server Offline"
         case .error(_): return "Connection Error"
         default: return "Connecting..."

@@ -174,9 +174,13 @@ class FileOperationService: ObservableObject {
                 let pct = Double(count) / Double(total)
                 onProgress?(TransferProgress(sessionID: sid, stage: .copying, percentage: pct, filesCompleted: count, totalFiles: total, currentFileName: url.lastPathComponent))
             } catch {
-                print("Failed to copy \(url) to \(newURL): \(error)")
-                self.error = error.localizedDescription
-                onProgress?(TransferProgress(sessionID: sid, stage: .failed, errorMessage: error.localizedDescription))
+                let errStr = error.localizedDescription
+                print("Failed to copy \(url) to \(newURL): \(errStr)")
+                Task { @MainActor in
+                    TransferTrace.logFailure(reason: "Mac Copy Error", function: "copyMacFiles", error: errStr)
+                }
+                self.error = errStr
+                onProgress?(TransferProgress(sessionID: sid, stage: .failed, errorMessage: errStr))
                 return
             }
             count += 1
@@ -201,9 +205,13 @@ class FileOperationService: ObservableObject {
                 let pct = Double(count) / Double(total)
                 onProgress?(TransferProgress(sessionID: sid, stage: .copying, percentage: pct, filesCompleted: count, totalFiles: total, currentFileName: url.lastPathComponent))
             } catch {
-                print("Failed to move \(url) to \(newURL): \(error)")
-                self.error = error.localizedDescription
-                onProgress?(TransferProgress(sessionID: sid, stage: .failed, errorMessage: error.localizedDescription))
+                let errStr = error.localizedDescription
+                print("Failed to move \(url) to \(newURL): \(errStr)")
+                Task { @MainActor in
+                    TransferTrace.logFailure(reason: "Mac Move Error", function: "moveMacFiles", error: errStr)
+                }
+                self.error = errStr
+                onProgress?(TransferProgress(sessionID: sid, stage: .failed, errorMessage: errStr))
                 return
             }
             count += 1

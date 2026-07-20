@@ -2,8 +2,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct DualPaneView: View {
-    @ObservedObject var deviceManager: DeviceManager
-    @ObservedObject var transferService = TransferService.shared
+    @ObservedObject var lifecycle = DeviceLifecycleManager.shared
+    @ObservedObject var progressPublisher = TransferProgressPublisher.shared
     @ObservedObject var fileOperationService = FileOperationService.shared
     
     @StateObject private var androidViewModel: DirectoryViewModel
@@ -18,84 +18,84 @@ struct DualPaneView: View {
     @State private var currentProgress: TransferProgress? = nil
     
     init() {
-        self.deviceManager = DeviceManager.shared
-        let device = DeviceManager.shared.selectedDevice! // Guaranteed by coordinator
-        _androidViewModel = StateObject(wrappedValue: DirectoryViewModel(device: device))
+        _androidViewModel = StateObject(wrappedValue: DirectoryViewModel(device: DeviceLifecycleManager.shared.currentDevice))
     }
     
     var body: some View {
-        if deviceManager.selectedDevice != nil {
-            ZStack {
+        ZStack {
                 VStack(spacing: 0) {
                     HSplitView {
-                        // Left pane: Android ADB
-                        FileManagerView(deviceManager: deviceManager, viewModel: androidViewModel, onFocus: {
-                            print("[DebugLogger] Focused pane changed to: Android via onFocus callback")
-                            activePane = .android
-                        })
-                            .focused($activePane, equals: .android)
-                            .onCommand(Selector("copy:")) {
-                                ClipboardManager.shared.copy(paths: Array(androidViewModel.selectedFileIDs), platform: .android, deviceSerial: deviceManager.selectedDevice?.serial)
-                            }
-                            .onCommand(Selector("cut:")) {
-                                ClipboardManager.shared.cut(paths: Array(androidViewModel.selectedFileIDs), platform: .android, deviceSerial: deviceManager.selectedDevice?.serial)
-                            }
-                            .onCommand(Selector("paste:")) {
-                                let destPath = androidViewModel.currentPath
-                                let destURL = URL(fileURLWithPath: destPath)
-                                TransferEngine.shared.executePaste(destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
-                            }
-                            .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
-                            .onDrop(of: [UTType.fileURL, UTType.plainText], isTargeted: nil) { providers in
-                                print("[DebugLogger] DualPaneView Android Pane received onDrop with \(providers.count) providers")
-                                guard let device = deviceManager.selectedDevice else { return false }
-                                let destPath = androidViewModel.currentPath
-                                let destURL = URL(fileURLWithPath: destPath)
-                                var handled = false
-                                
-                                for provider in providers {
-                                    if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                                        print("[DebugLogger] DualPaneView Android Pane provider has fileURL")
-                                        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
-                                            print("[DebugLogger] DualPaneView Android Pane loadItem completed, error: \(String(describing: error))")
-                                            if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
-                                                print("[DebugLogger] DualPaneView Android Pane loading url: \(url.path)")
-                                                Task { @MainActor in
-                                                    print("[DebugLogger] DualPaneView Android Pane executing transfer mac->android")
-                                                    TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .mac, sourceDeviceSerial: nil, sourcePaths: [url.path], destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
-                                                }
-                                            } else {
-                                                print("[DebugLogger] DualPaneView Android Pane item is not Data or URL could not be parsed: \(String(describing: item))")
-                                            }
-                                        }
-                                        handled = true
-                                    } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                                        print("[DebugLogger] DualPaneView Android Pane provider has plainText")
-                                        provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { (item, error) in
-                                            print("[DebugLogger] DualPaneView Android Pane loadItem completed, error: \(String(describing: error))")
-                                            var parsedPath: String?
-                                            if let data = item as? Data, let str = String(data: data, encoding: .utf8) {
-                                                parsedPath = str
-                                            } else if let str = item as? String {
-                                                parsedPath = str
-                                            }
-                                            
-                                            if let pathStr = parsedPath, pathStr.hasPrefix("android://") {
-                                                let path = String(pathStr.dropFirst("android://".count))
-                                                print("[DebugLogger] DualPaneView Android Pane loading path: \(path)")
-                                                Task { @MainActor in
-                                                    print("[DebugLogger] DualPaneView Android Pane executing transfer android->android")
-                                                    TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .android, sourceDeviceSerial: device.serial, sourcePaths: [path], destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
-                                                }
-                                            } else {
-                                                print("[DebugLogger] DualPaneView Android Pane item is not Data or path could not be parsed/has no prefix: \(String(describing: item))")
-                                            }
-                                        }
-                                        handled = true
-                                    }
+                        if case .ready(let device) = lifecycle.state {
+                            FileManagerView(device: device, viewModel: androidViewModel, onFocus: {
+                                print("[DebugLogger] Focused pane changed to: Android via onFocus callback")
+                                activePane = .android
+                            })
+                                .focused($activePane, equals: .android)
+                                .onCommand(Selector("copy:")) {
+                                    ClipboardManager.shared.copy(paths: Array(androidViewModel.selectedFileIDs), platform: .android, deviceSerial: lifecycle.currentDevice?.serial)
                                 }
-                                return handled
-                            }
+                                .onCommand(Selector("cut:")) {
+                                    ClipboardManager.shared.cut(paths: Array(androidViewModel.selectedFileIDs), platform: .android, deviceSerial: lifecycle.currentDevice?.serial)
+                                }
+                                .onCommand(Selector("paste:")) {
+                                    let destPath = androidViewModel.currentPath
+                                    let destURL = URL(fileURLWithPath: destPath)
+                                    TransferEngine.shared.executePaste(destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
+                                }
+                                .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
+                                .onDrop(of: [UTType.fileURL, UTType.plainText], isTargeted: nil) { providers in
+                                    print("[DebugLogger] DualPaneView Android Pane received onDrop with \(providers.count) providers")
+                                    guard let device = lifecycle.currentDevice else { return false }
+                                    let destPath = androidViewModel.currentPath
+                                    let destURL = URL(fileURLWithPath: destPath)
+                                    var handled = false
+                                    
+                                    for provider in providers {
+                                        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                                            print("[DebugLogger] DualPaneView Android Pane provider has fileURL")
+                                            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
+                                                print("[DebugLogger] DualPaneView Android Pane loadItem completed, error: \(String(describing: error))")
+                                                if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                                                    print("[DebugLogger] DualPaneView Android Pane loading url: \(url.path)")
+                                                    Task { @MainActor in
+                                                        print("[DebugLogger] DualPaneView Android Pane executing transfer mac->android")
+                                                        TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .mac, sourceDeviceSerial: nil, sourcePaths: [url.path], destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
+                                                    }
+                                                } else {
+                                                    print("[DebugLogger] DualPaneView Android Pane item is not Data or URL could not be parsed: \(String(describing: item))")
+                                                }
+                                            }
+                                            handled = true
+                                        } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                                            print("[DebugLogger] DualPaneView Android Pane provider has plainText")
+                                            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { (item, error) in
+                                                print("[DebugLogger] DualPaneView Android Pane loadItem completed, error: \(String(describing: error))")
+                                                var parsedPath: String?
+                                                if let data = item as? Data, let str = String(data: data, encoding: .utf8) {
+                                                    parsedPath = str
+                                                } else if let str = item as? String {
+                                                    parsedPath = str
+                                                }
+                                                
+                                                if let pathStr = parsedPath, pathStr.hasPrefix("android://") {
+                                                    let path = String(pathStr.dropFirst("android://".count))
+                                                    print("[DebugLogger] DualPaneView Android Pane loading path: \(path)")
+                                                    Task { @MainActor in
+                                                        print("[DebugLogger] DualPaneView Android Pane executing transfer android->android")
+                                                        TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .android, sourceDeviceSerial: device.serial, sourcePaths: [path], destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
+                                                    }
+                                                } else {
+                                                    print("[DebugLogger] DualPaneView Android Pane item is not Data or path could not be parsed/has no prefix: \(String(describing: item))")
+                                                }
+                                            }
+                                            handled = true
+                                        }
+                                    }
+                                    return handled
+                                }
+                        } else {
+                            AndroidEmptyStateView()
+                        }
                         
                         // Right pane: macOS Local
                         LocalFileManagerView(viewModel: localViewModel, onFocus: {
@@ -116,7 +116,7 @@ struct DualPaneView: View {
                             .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                             .onDrop(of: [UTType.fileURL, UTType.plainText], isTargeted: nil) { providers in
                                 print("[DebugLogger] DualPaneView Mac Pane received onDrop with \(providers.count) providers")
-                                guard let device = deviceManager.selectedDevice, let destURL = localViewModel.currentURL else { return false }
+                                    guard let device = lifecycle.currentDevice, let destURL = localViewModel.currentURL else { return false }
                                 var handled = false
                                 
                                 for provider in providers {
@@ -194,9 +194,9 @@ struct DualPaneView: View {
                     .background(Color(NSColor.windowBackgroundColor))
                 }
                 
-                if transferService.state != .idle {
+                if let activeSession = progressPublisher.activeSessions.values.first, activeSession.state != .idle {
                     Color.black.opacity(0.4).ignoresSafeArea()
-                    TransferProgressView {
+                    TransferProgressView(session: activeSession) {
                         // On dismiss, refresh panes
                         androidViewModel.loadDirectory(androidViewModel.currentPath)
                         if let currentURL = localViewModel.currentURL {
@@ -245,10 +245,47 @@ struct DualPaneView: View {
                 .keyboardShortcut(.delete, modifiers: .command)
                 .opacity(0)
             }
+            .touchBar {
+                if case .ready = DeviceLifecycleManager.shared.state, progressPublisher.activeSessions.isEmpty && !fileOperationService.isOperating {
+                    Button(action: {
+                        NSApp.sendAction(Selector(("copy:")), to: nil, from: nil)
+                    }) {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    Button(action: {
+                        NSApp.sendAction(Selector(("paste:")), to: nil, from: nil)
+                    }) {
+                        Label("Paste", systemImage: "doc.on.clipboard")
+                    }
+                    Button(action: {
+                        NSApp.sendAction(Selector(("cut:")), to: nil, from: nil)
+                    }) {
+                        Label("Cut", systemImage: "scissors")
+                    }
+                    Button(role: .destructive, action: {
+                        if activePane == .android {
+                            NotificationCenter.default.post(name: Notification.Name("AndroidTriggerDelete"), object: nil)
+                        } else if activePane == .mac {
+                            NotificationCenter.default.post(name: Notification.Name("MacTriggerDelete"), object: nil)
+                        }
+                    }) {
+                        Label("Delete", systemImage: "trash.fill")
+                    }
+                    Button(action: {
+                        if activePane == .android {
+                            androidViewModel.loadDirectory(androidViewModel.currentPath)
+                        } else if activePane == .mac, let url = localViewModel.currentURL {
+                            localViewModel.loadDirectory(url)
+                        }
+                    }) {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
             .sheet(isPresented: $showSmartSync) {
-                if let localURL = localViewModel.currentURL {
+                if let localURL = localViewModel.currentURL, let device = lifecycle.currentDevice {
                     SmartSyncView(
-                        device: deviceManager.selectedDevice!,
+                        device: device,
                         localURL: localURL,
                         remotePath: androidViewModel.currentPath,
                         isPresented: $showSmartSync
@@ -267,38 +304,30 @@ struct DualPaneView: View {
                     DiagnosticLogger.shared.log("Focused Pane: None", category: .ui)
                 }
             }
-        } else {
-            Text("No device connected")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+            .onChange(of: lifecycle.currentDevice) { newDevice in
+                androidViewModel.updateDevice(newDevice)
+            }
     }
     
 
     
     private func copyToMac() {
-        guard let device = deviceManager.selectedDevice else { return }
+        guard let device = lifecycle.currentDevice else { return }
         let selectedFiles = androidViewModel.files.filter { androidViewModel.selectedFileIDs.contains($0.id) }
         guard !selectedFiles.isEmpty else { return }
         
         let sourcePaths = selectedFiles.map { $0.path }
         guard let dest = localViewModel.currentURL else { return }
         
-        Task {
-            await transferService.prepareTransfer(
-                device: device,
-                direction: .androidToMac,
-                sourcePaths: sourcePaths,
-                destination: dest,
-                isBackup: false,
-                duplicateMode: .fast,
-                sessionID: nil,
-                onProgress: handleProgress
-            )
+        let task = Task {
+            let session = TransferProgressPublisher.shared.createSession(device: device, direction: .androidToMac, destination: dest, isBackup: false)
+            await TransferService.shared.prepareTransfer(session: session, sourcePaths: sourcePaths, duplicateMode: .fast, onProgress: handleProgress)
         }
+        progressPublisher.activeSessions.values.first?.setActiveTask(task)
     }
     
     private func copyToAndroid() {
-        guard let device = deviceManager.selectedDevice else { return }
+        guard let device = lifecycle.currentDevice else { return }
         let selectedFiles = localViewModel.files.filter { localViewModel.selectedFileIDs.contains($0.id) }
         guard !selectedFiles.isEmpty else { return }
         
@@ -308,18 +337,11 @@ struct DualPaneView: View {
         // TransferService expects the destination to be passed as a URL even for MacToAndroid (it extracts the path)
         let destURL = URL(fileURLWithPath: dest)
         
-        Task {
-            await transferService.prepareTransfer(
-                device: device,
-                direction: .macToAndroid,
-                sourcePaths: sourcePaths,
-                destination: destURL,
-                isBackup: false,
-                duplicateMode: .fast,
-                sessionID: nil,
-                onProgress: handleProgress
-            )
+        let task = Task {
+            let session = TransferProgressPublisher.shared.createSession(device: device, direction: .macToAndroid, destination: destURL, isBackup: false)
+            await TransferService.shared.prepareTransfer(session: session, sourcePaths: sourcePaths, duplicateMode: .fast, onProgress: handleProgress)
         }
+        progressPublisher.activeSessions.values.first?.setActiveTask(task)
     }
     
     private func performGlobalPaste() {

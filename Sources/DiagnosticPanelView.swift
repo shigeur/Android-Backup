@@ -6,7 +6,7 @@ struct DiagnosticPanelView: View {
     @ObservedObject var deviceLifecycle = DeviceLifecycleManager.shared
     @ObservedObject var fileOperation = FileOperationService.shared
     @ObservedObject var clipboard = ClipboardManager.shared
-    @ObservedObject var transferService = TransferService.shared
+    @ObservedObject var progressPublisher = TransferProgressPublisher.shared
     @ObservedObject var uiState = UIStateManager.shared
     
     @State private var selectedCategory: LogCategory = .all
@@ -122,16 +122,16 @@ struct DiagnosticPanelView: View {
     private var transferInformationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Transfer Information").font(.headline)
-            labeledValue("Status", "\(transferService.state)")
-            if let plan = transferService.transferPlan {
+            labeledValue("Status", "\(progressPublisher.activeSessions.values.first?.state ?? .idle)")
+            if let plan = progressPublisher.activeSessions.values.first?.transferPlan {
                 labeledValue("Direction", plan.direction == .androidToMac ? "Android -> Mac" : "Mac -> Android")
                 labeledValue("Dest Path", plan.destination.path)
                 labeledValue("Stats", "\(plan.newJobs.count) New | \(plan.modifiedJobs.count) Mod | \(plan.duplicateJobs.count) Dup")
             }
-            if transferService.state == .copying || transferService.state == .scanning || transferService.state == .preflight {
-                labeledValue("Progress", "\(Int(transferService.progress * 100))%")
-                labeledValue("Bytes", "\(transferService.bytesCopied) / \(transferService.totalBytesToCopy)")
-                labeledValue("Current File", transferService.currentFile)
+            if progressPublisher.activeSessions.values.first?.state ?? .idle == .copying || progressPublisher.activeSessions.values.first?.state ?? .idle == .scanning || progressPublisher.activeSessions.values.first?.state ?? .idle == .preflight {
+                labeledValue("Progress", "\(Int((progressPublisher.activeSessions.values.first?.progress ?? 0) * 100))%")
+                labeledValue("Bytes", "\((progressPublisher.activeSessions.values.first?.bytesCopied ?? 0)) / \((progressPublisher.activeSessions.values.first?.totalBytesToCopy ?? 0))")
+                labeledValue("Current File", progressPublisher.activeSessions.values.first?.currentFile ?? "")
             }
         }
     }
@@ -177,7 +177,7 @@ struct DiagnosticPanelView: View {
         report += "Focused Pane: \(uiState.focusedPane.rawValue)\n"
         report += "Clipboard Action: \(clipboard.currentItem?.action == .copy ? "Copy" : (clipboard.currentItem?.action == .cut ? "Cut" : "None"))\n"
         report += "Clipboard Count: \(clipboard.currentItem?.paths.count ?? 0)\n"
-        report += "Transfer State: \(transferService.state)\n\n"
+        report += "Transfer State: \(progressPublisher.activeSessions.values.first?.state ?? .idle)\n\n"
         
         report += "=== EVENT TIMELINE ===\n"
         for event in logger.events {

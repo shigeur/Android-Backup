@@ -40,43 +40,55 @@ class TransferEngine {
         let sessionID = UUID().uuidString.prefix(8).uppercased()
         
         let wrappedProgress: TransferProgressCallback = { progress in
-            print("[TransferSession \(progress.sessionID)] \(progress.stage.rawValue) ↓")
-            
-            // Log to Diagnostic Panel
-            let message = "Session \(progress.sessionID): \(progress.stage.rawValue) - \(progress.percentage ?? 0.0)%"
-            DiagnosticLogger.shared.log(message, category: .transfer)
+            // Log to Diagnostic Panel using Trace
+            Task { @MainActor in
+                TransferTrace.log("\(progress.stage.rawValue)")
+            }
             
             onProgress?(progress)
         }
         
         wrappedProgress(TransferProgress(sessionID: sessionID, stage: .requested))
         
-        Task {
-            if sourcePlatform == .mac && destPlatform == .mac {
-                let urls = sourcePaths.map { URL(fileURLWithPath: $0) }
-                if action == .cut {
-                    await FileOperationService.shared.moveMacFiles(urls: urls, to: destURL, sessionID: sessionID, onProgress: wrappedProgress)
-                } else {
-                    await FileOperationService.shared.copyMacFiles(urls: urls, to: destURL, sessionID: sessionID, onProgress: wrappedProgress)
+        let session: TransferSession
+        if sourcePlatform == .mac && destPlatform == .mac {
+            session = TransferProgressPublisher.shared.createSession(device: nil, direction: nil, destination: destURL, isBackup: false, sessionID: sessionID)
+        } else if sourcePlatform == .android && destPlatform == .mac {
+            guard let deviceSerial = sourceDeviceSerial, let device = DeviceLifecycleManager.shared.currentDevice, device.serial == deviceSerial else { 
+                wrappedProgress(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: "Device not found or not matching."))
+                return 
+            }
+            session = TransferProgressPublisher.shared.createSession(device: device, direction: .androidToMac, destination: destURL, isBackup: false, sessionID: sessionID)
+        } else if sourcePlatform == .mac && destPlatform == .android {
+            guard let device = DeviceLifecycleManager.shared.currentDevice else { 
+                wrappedProgress(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: "No device connected."))
+                return 
+            }
+            let dest = URL(fileURLWithPath: destPath)
+            session = TransferProgressPublisher.shared.createSession(device: device, direction: .macToAndroid, destination: dest, isBackup: false, sessionID: sessionID)
+        } else {
+            wrappedProgress(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: "Android to Android transfer not implemented."))
+            return
+        }
+        
+        let task = Task {
+            await TransferTrace.$currentID.withValue(sessionID) {
+                if sourcePlatform == .mac && destPlatform == .mac {
+                    let urls = sourcePaths.map { URL(fileURLWithPath: $0) }
+                    if action == .cut {
+                        await FileOperationService.shared.moveMacFiles(urls: urls, to: destURL, sessionID: sessionID, onProgress: wrappedProgress)
+                    } else {
+                        await FileOperationService.shared.copyMacFiles(urls: urls, to: destURL, sessionID: sessionID, onProgress: wrappedProgress)
+                    }
+                    TransferProgressPublisher.shared.removeSession(id: session.id)
+                } else if sourcePlatform == .android && destPlatform == .mac {
+                    await TransferService.shared.prepareTransfer(session: session, sourcePaths: sourcePaths, duplicateMode: .fast, onProgress: wrappedProgress)
+                } else if sourcePlatform == .mac && destPlatform == .android {
+                    await TransferService.shared.prepareTransfer(session: session, sourcePaths: sourcePaths, duplicateMode: .fast, onProgress: wrappedProgress)
                 }
-            } else if sourcePlatform == .android && destPlatform == .mac {
-                guard let deviceSerial = sourceDeviceSerial, let device = DeviceManager.shared.selectedDevice, device.serial == deviceSerial else { 
-                    wrappedProgress(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: "Device not found or not matching."))
-                    return 
-                }
-                await TransferService.shared.prepareTransfer(device: device, direction: .androidToMac, sourcePaths: sourcePaths, destination: destURL, isBackup: false, sessionID: sessionID, onProgress: wrappedProgress)
-            } else if sourcePlatform == .mac && destPlatform == .android {
-                guard let device = DeviceManager.shared.selectedDevice else { 
-                    wrappedProgress(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: "No device connected."))
-                    return 
-                }
-                // For mac to android, TransferService expects destination to be URL
-                let dest = URL(fileURLWithPath: destPath)
-                await TransferService.shared.prepareTransfer(device: device, direction: .macToAndroid, sourcePaths: sourcePaths, destination: dest, isBackup: false, sessionID: sessionID, onProgress: wrappedProgress)
-            } else if sourcePlatform == .android && destPlatform == .android {
-                // Not supported natively yet without file operation service support
-                wrappedProgress(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: "Android to Android transfer not implemented."))
             }
         }
+        
+        session.setActiveTask(task)
     }
 }

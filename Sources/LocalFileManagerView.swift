@@ -171,13 +171,17 @@ struct LocalFileManagerView: View {
             }
         }
         .alert("Move \(itemsToDelete.count) selected items to Trash?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Move to Trash", role: .destructive) {
+            Button(role: .cancel, action: { }) {
+                Label("Cancel", systemImage: "xmark.circle.fill")
+            }
+            Button(role: .destructive, action: {
                 let urls = itemsToDelete.map { URL(fileURLWithPath: $0) }
                 Task {
-                    do { try await coordinator.delete(urls: urls) }
+                    do { try await self.coordinator.delete(urls: urls) }
                     catch { operationError = error.localizedDescription }
                 }
+            }) {
+                Label("Move to Trash", systemImage: "trash.fill")
             }
         } message: {
             Text("These items will be moved to the Trash.")
@@ -204,7 +208,9 @@ struct LocalFileManagerView: View {
             ),
             presenting: operationError
         ) { _ in
-            Button("OK", role: .cancel) { }
+            Button(role: .cancel, action: { }) {
+                Label("OK", systemImage: "checkmark.circle.fill")
+            }
         } message: { errorMsg in
             Text(errorMsg)
         }
@@ -232,12 +238,13 @@ struct LocalFileManagerView: View {
         }
     }
     
+    @MainActor
     private func performPaste() {
         guard let item = ClipboardManager.shared.currentItem, let dest = viewModel.currentURL else { return }
         
         let urls = item.paths.map { URL(fileURLWithPath: $0) }
         
-        Task {
+        let task = Task {
             if item.platform == .mac {
                 if item.action == .cut {
                     await FileOperationService.shared.moveMacFiles(urls: urls, to: dest)
@@ -245,14 +252,17 @@ struct LocalFileManagerView: View {
                     await FileOperationService.shared.copyMacFiles(urls: urls, to: dest)
                 }
             } else {
-                guard let deviceSerial = item.sourceDeviceSerial, let device = DeviceManager.shared.selectedDevice, device.serial == deviceSerial else { return }
-                await TransferService.shared.prepareTransfer(device: device, direction: .androidToMac, sourcePaths: item.paths, destination: dest, isBackup: false)
+                guard let deviceSerial = item.sourceDeviceSerial, let device = DeviceLifecycleManager.shared.currentDevice, device.serial == deviceSerial else { return }
+                let session = TransferProgressPublisher.shared.createSession(device: device, direction: .androidToMac, destination: dest, isBackup: false)
+                await TransferService.shared.prepareTransfer(session: session, sourcePaths: item.paths, duplicateMode: .fast)
             }
         }
+        TransferProgressPublisher.shared.activeSessions.values.first?.setActiveTask(task)
         
         if item.action == .cut { ClipboardManager.shared.clear() }
     }
     
+    @MainActor
     private func buildContextMenu(selection: Set<String>) -> NSMenu? {
         let menu = NSMenu()
         let vm = viewModel

@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct BackupView: View {
-    @ObservedObject var deviceManager: DeviceManager
-    @ObservedObject var service = TransferService.shared    
+    @ObservedObject var lifecycle = DeviceLifecycleManager.shared
+    @ObservedObject var progressPublisher = TransferProgressPublisher.shared    
     @State private var selectedFolders: Set<String> = ["/sdcard/DCIM", "/sdcard/Pictures"]
     @State private var destinationFolder: URL?
     
@@ -16,15 +16,11 @@ struct BackupView: View {
         "/sdcard/Android/media/com.whatsapp/WhatsApp/Media"
     ]
     
-    init(deviceManager: DeviceManager) {
-        self.deviceManager = deviceManager
+    init() {
     }
     
     var body: some View {
-        if deviceManager.selectedDevice == nil {
-            Text("No device connected to backup.")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
+        if let device = lifecycle.currentDevice {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Backup Options")
                     .font(.title)
@@ -71,8 +67,8 @@ struct BackupView: View {
                 Spacer()
                 
                 // Progress Section
-                if service.state != .idle {
-                    TransferProgressView {
+                if let activeSession = progressPublisher.activeSessions.values.first, activeSession.state != .idle {
+                    TransferProgressView(session: activeSession) {
                         // On dismiss
                     }
                     .frame(maxWidth: .infinity)
@@ -90,14 +86,19 @@ struct BackupView: View {
             }
             .padding(40)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            Text("No device connected to backup.")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
     
     private func startBackup() {
-        guard let dest = destinationFolder, let device = deviceManager.selectedDevice else { return }
-        Task {
-            await service.prepareTransfer(device: device, direction: .androidToMac, sourcePaths: Array(selectedFolders), destination: dest, isBackup: true)
+        guard let dest = destinationFolder, let device = lifecycle.currentDevice else { return }
+        let task = Task {
+            let session = TransferProgressPublisher.shared.createSession(device: device, direction: .androidToMac, destination: dest, isBackup: true)
+            await TransferService.shared.prepareTransfer(session: session, sourcePaths: Array(selectedFolders), duplicateMode: .fast)
         }
+        if let session = progressPublisher.activeSessions.values.first { session.setActiveTask(task) }
     }
     
     private func formatSpeed(_ bytesPerSec: Double) -> String {

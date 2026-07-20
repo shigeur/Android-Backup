@@ -27,6 +27,15 @@ enum DeviceConnectionState: Equatable {
     }
 }
 
+extension DeviceLifecycleManager {
+    var currentDevice: AndroidDevice? {
+        if case .ready(let device) = state { return device }
+        if case .initializing(let device) = state { return device }
+        if case .connected(let device) = state { return device }
+        return nil
+    }
+}
+
 @MainActor
 class DeviceLifecycleManager: ObservableObject {
     static let shared = DeviceLifecycleManager()
@@ -65,7 +74,7 @@ class DeviceLifecycleManager: ObservableObject {
     
     func disconnect() {
         print("[\(Date())] Device Disconnected")
-        DeviceManager.shared.clearSelection()
+
         updateState(.disconnected)
         startSearch()
     }
@@ -118,14 +127,11 @@ class DeviceLifecycleManager: ObservableObject {
                         // Hand off to DeviceManager for initialization
                         updateState(.initializing(device))
                         
-                        let success = await DeviceManager.shared.initializeDevice(device)
-                        if success {
-                            if let initializedDevice = DeviceManager.shared.selectedDevice {
-                                print("[\(Date())] Device Ready")
-                                updateState(.ready(initializedDevice))
-                                stopSearch() // Ready is terminal
-                                return
-                            }
+                        if let initializedDevice = await DeviceManager.shared.initializeDevice(device) {
+                            print("[\(Date())] Device Ready")
+                            updateState(.ready(initializedDevice))
+                            stopSearch() // Ready is terminal
+                            return
                         } else {
                             updateState(.error("Failed to initialize device"))
                         }
@@ -133,6 +139,7 @@ class DeviceLifecycleManager: ObservableObject {
                 } else {
                     if state != .searching && state != .disconnected && state != .unauthorized {
                         updateState(.searching)
+                        await DirectoryCache.shared.invalidateAllAndroid()
                     }
                 }
             } catch {

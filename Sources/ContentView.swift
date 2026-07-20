@@ -8,46 +8,40 @@ struct ContentView: View {
     var body: some View {
         Group {
             if appCoordinator.state == .ready {
-                // Let DeviceLifecycleManager handle UI now
-                switch deviceLifecycle.state {
-                case .idle, .searching, .disconnected, .unauthorized, .adbMissing, .adbOffline, .error:
-                    EmptyDeviceView()
-                case .connected(let device), .initializing(let device):
-                    VStack(spacing: 20) {
-                        ProgressView().scaleEffect(1.5)
-                        Text("Initializing \(device.model)...").font(.headline)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .ready(let device):
-                    NavigationSplitView {
-                        List(selection: $selectedTab) {
-                            NavigationLink("Devices", value: "devices")
-                            // File Manager temporarily hidden.
-                            // Will be re-enabled after UI synchronization issues are resolved.
-                            NavigationLink("Dual Pane", value: "dualpane")
-                            NavigationLink("Backup", value: "backup")
-                            NavigationLink("History", value: "history")
-                            NavigationLink("Settings", value: "settings")
-                        }
-                        .navigationTitle("Android Backup")
-                    } detail: {
-                        if selectedTab == "devices" {
+                // The main shell layout should always be visible.
+                // DualPaneView will handle the Android pane empty state.
+                NavigationSplitView {
+                    List(selection: $selectedTab) {
+                        NavigationLink("Devices", value: "devices")
+                        NavigationLink("Dual Pane", value: "dualpane")
+                        NavigationLink("Backup", value: "backup")
+                        NavigationLink("History", value: "history")
+                        NavigationLink("Settings", value: "settings")
+                    }
+                    .navigationTitle("Android Backup")
+                } detail: {
+                    if selectedTab == "devices" {
+                        if case .ready(let device) = deviceLifecycle.state {
                             DeviceInfoView(device: device)
-                        } else if selectedTab == "filemanager" {
-                            StandaloneFileManagerView()
-                        } else if selectedTab == "dualpane" {
-                            DualPaneView()
-                        } else if selectedTab == "backup" {
-                            BackupView(deviceManager: DeviceManager.shared)
-                        } else if selectedTab == "history" {
-                            HistoryView()
-                        } else if selectedTab == "settings" {
-                            SettingsView()
                         } else {
-                            Text("Select an item from the sidebar")
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            AndroidEmptyStateView()
                         }
+                    } else if selectedTab == "filemanager" {
+                        StandaloneFileManagerView()
+                    } else if selectedTab == "dualpane" {
+                        DualPaneView()
+                    } else if selectedTab == "backup" {
+                        BackupView()
+                    } else if selectedTab == "history" {
+                        HistoryView()
+                    } else if selectedTab == "settings" {
+                        SettingsView()
+                    } else {
+                        Text("Select an item from the sidebar")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
+                .connectionBanner() // Attach the connection banner natively to the app shell
             } else {
                 // App is still launching
                 switch appCoordinator.state {

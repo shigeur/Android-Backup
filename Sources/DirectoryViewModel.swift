@@ -11,9 +11,26 @@ class DirectoryViewModel: ObservableObject {
     
     private let directoryService: DirectoryService
     
-    init(device: AndroidDevice) {
+    init(device: AndroidDevice? = nil) {
         self.directoryService = DirectoryService(device: device)
-        loadDirectory("/sdcard")
+        if device != nil {
+            loadDirectory("/sdcard")
+        }
+    }
+    
+    func updateDevice(_ device: AndroidDevice?) {
+        self.directoryService.device = device
+        if device != nil {
+            // Restore previous directory or default
+            loadDirectory(currentPath.isEmpty ? "/sdcard" : currentPath)
+        } else {
+            // Clear files if disconnected
+            self.currentPath = ""
+            self.files = []
+            self.selectedFileIDs.removeAll()
+            self.isLoading = false
+            self.error = nil
+        }
     }
     
     func loadDirectory(_ path: String) {
@@ -68,8 +85,14 @@ class DirectoryViewModel: ObservableObject {
         let path = currentPath
         
         Task {
+            TransferTrace.logDirectory(requested: true, path: path)
+            let startTime = Date()
+            TransferTrace.logDirectory(started: true, path: path)
             do {
                 let fetchedFiles = try await directoryService.listDirectory(path)
+                
+                let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+                TransferTrace.logDirectory(finished: true, itemCount: fetchedFiles.count, durationMs: durationMs, path: path)
                 
                 if self.files != fetchedFiles {
                     self.files = fetchedFiles

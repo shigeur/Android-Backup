@@ -8,7 +8,7 @@ struct SmartSyncView: View {
     
     @State private var isAnalyzing = true
     @State private var plan: SyncPlan?
-    @ObservedObject var transferService = TransferService.shared
+    @ObservedObject var progressPublisher = TransferProgressPublisher.shared
     
     struct SyncPlan {
         var toPull: [ADBFile] = []
@@ -120,29 +120,19 @@ struct SmartSyncView: View {
         // We will just issue two transfers sequentially or one if only one direction
         isPresented = false
         
-        Task {
+        let task = Task {
             if !plan.toPull.isEmpty {
-                await transferService.prepareTransfer(
-                    device: device,
-                    direction: .androidToMac,
-                    sourcePaths: plan.toPull.map { $0.path },
-                    destination: localURL,
-                    isBackup: false
-                )
-                // Automatically execute without preflight duplicate prompt, since we already did it
-                await transferService.executeTransfer(resolution: .replace)
+                let session = TransferProgressPublisher.shared.createSession(device: device, direction: .androidToMac, destination: localURL, isBackup: false)
+                await TransferService.shared.prepareTransfer(session: session, sourcePaths: plan.toPull.map { $0.path }, duplicateMode: .fast)
+                await TransferService.shared.executeTransfer(session: session, resolution: .replace)
             }
             
             if !plan.toPush.isEmpty {
-                await transferService.prepareTransfer(
-                    device: device,
-                    direction: .macToAndroid,
-                    sourcePaths: plan.toPush.map { $0.url.path },
-                    destination: URL(fileURLWithPath: remotePath),
-                    isBackup: false
-                )
-                await transferService.executeTransfer(resolution: .replace)
+                let session = TransferProgressPublisher.shared.createSession(device: device, direction: .macToAndroid, destination: URL(fileURLWithPath: remotePath), isBackup: false)
+                await TransferService.shared.prepareTransfer(session: session, sourcePaths: plan.toPush.map { $0.url.path }, duplicateMode: .fast)
+                await TransferService.shared.executeTransfer(session: session, resolution: .replace)
             }
         }
+        progressPublisher.activeSessions.values.first?.setActiveTask(task)
     }
 }

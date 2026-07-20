@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 struct FileManagerView: View {
-    @ObservedObject var deviceManager: DeviceManager
+    let device: AndroidDevice
     @ObservedObject var viewModel: DirectoryViewModel
     var onFocus: () -> Void
     
@@ -33,8 +33,7 @@ struct FileManagerView: View {
     }
     
     var body: some View {
-        if deviceManager.selectedDevice != nil {
-            VStack(spacing: 0) {
+        VStack(spacing: 0) {
                 // Toolbar/Breadcrumbs
                 HStack {
                     Button(action: { viewModel.navigateUp() }) {
@@ -134,11 +133,9 @@ struct FileManagerView: View {
                                 .padding(.trailing, 10)
                         }
                         
-                        if let device = deviceManager.selectedDevice {
-                            Text("Device: \(device.model)")
-                            Text(device.status == "device" ? "USB Connected" : device.status.capitalized)
-                                .foregroundColor(device.status == "device" ? .green : .orange)
-                        }
+                        Text("Device: \(device.model)")
+                        Text(device.status == "device" ? "USB Connected" : device.status.capitalized)
+                            .foregroundColor(device.status == "device" ? .green : .orange)
                     }
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -155,15 +152,17 @@ struct FileManagerView: View {
             }
             // .onAppear removed, viewModel init triggers load
             .alert("Delete \(itemsToDelete.count) selected items?", isPresented: $showDeleteConfirmation) {
-                Button("Cancel", role: .cancel) { }
-                Button("Delete", role: .destructive) {
-                    if let device = deviceManager.selectedDevice {
-                        let paths = itemsToDelete
-                        Task {
-                            do { try await coordinator.delete(paths: paths, device: device) }
-                            catch { operationError = error.localizedDescription }
-                        }
+                Button(role: .cancel, action: { }) {
+                    Label("Cancel", systemImage: "xmark.circle.fill")
+                }
+                Button(role: .destructive, action: {
+                    let paths = itemsToDelete
+                    Task {
+                        do { try await coordinator.delete(paths: paths, device: device) }
+                        catch { operationError = error.localizedDescription }
                     }
+                }) {
+                    Label("Delete", systemImage: "trash.fill")
                 }
             } message: {
                 Text("These files will be permanently removed from your Android device. This action cannot be undone.")
@@ -172,7 +171,7 @@ struct FileManagerView: View {
                 TextField("New Name", text: $newName)
                 Button("Cancel", role: .cancel) { }
                 Button("Rename") {
-                    if let device = deviceManager.selectedDevice, let path = itemToRename {
+                    if let path = itemToRename {
                         Task { await FileOperationService.shared.renameAndroidFile(device: device, path: path, newName: newName) }
                     }
                 }
@@ -191,10 +190,8 @@ struct FileManagerView: View {
                     onCreate: { name in
                         Task {
                             do {
-                                if let device = deviceManager.selectedDevice {
-                                    try await coordinator.createFolder(name: name, device: device)
-                                    showNewFolderSheet = false
-                                }
+                                try await coordinator.createFolder(name: name, device: device)
+                                showNewFolderSheet = false
                             } catch {
                                 operationError = error.localizedDescription
                             }
@@ -210,15 +207,13 @@ struct FileManagerView: View {
                 ),
                 presenting: operationError
             ) { _ in
-                Button("OK", role: .cancel) { }
+                Button(role: .cancel, action: { }) {
+                    Label("OK", systemImage: "checkmark.circle.fill")
+                }
             } message: { errorMsg in
                 Text(errorMsg)
             }
-        } else {
-            Text("No device connected")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
     
     private func triggerDelete(selection: Set<String>) {
         guard !selection.isEmpty else { return }
@@ -241,6 +236,7 @@ struct FileManagerView: View {
         }
     }
     
+    @MainActor
     private func performPaste() {
         TransferEngine.shared.executePaste(destPlatform: .android, destPath: viewModel.currentPath, destURL: URL(fileURLWithPath: viewModel.currentPath))
     }
@@ -259,10 +255,11 @@ struct FileManagerView: View {
         }
     }
     
+    @MainActor
     private func buildContextMenu(selection: Set<String>) -> NSMenu? {
         let menu = NSMenu()
         let vm = viewModel
-        let dm = deviceManager
+        let dev = device
         
         let openItem = ClosureMenuItem(title: "Open", keyEquivalent: "") {
             if let selectedID = selection.first,
@@ -276,13 +273,13 @@ struct FileManagerView: View {
         menu.addItem(NSMenuItem.separator())
         
         let copyItem = ClosureMenuItem(title: "Copy", keyEquivalent: "") {
-            ClipboardManager.shared.copy(paths: Array(selection), platform: .android, deviceSerial: dm.selectedDevice?.serial)
+            ClipboardManager.shared.copy(paths: Array(selection), platform: .android, deviceSerial: dev.serial)
         }
         copyItem.isEnabled = !selection.isEmpty
         menu.addItem(copyItem)
         
         let cutItem = ClosureMenuItem(title: "Cut", keyEquivalent: "") {
-            ClipboardManager.shared.cut(paths: Array(selection), platform: .android, deviceSerial: dm.selectedDevice?.serial)
+            ClipboardManager.shared.cut(paths: Array(selection), platform: .android, deviceSerial: dev.serial)
         }
         cutItem.isEnabled = !selection.isEmpty
         menu.addItem(cutItem)
@@ -371,23 +368,28 @@ struct InfoRow: View {
 }
 
 struct StandaloneFileManagerView: View {
-    @ObservedObject var deviceManager = DeviceManager.shared
+    @ObservedObject var lifecycle = DeviceLifecycleManager.shared
     @StateObject private var viewModel: DirectoryViewModel
-    @ObservedObject var transferService = TransferService.shared
+    @ObservedObject var progressPublisher = TransferProgressPublisher.shared
     
     init() {
-        let device = DeviceManager.shared.selectedDevice! // Guaranteed to exist because we are in .ready state
-        _viewModel = StateObject(wrappedValue: DirectoryViewModel(device: device))
+        if case .ready(let device) = DeviceLifecycleManager.shared.state {
+            _viewModel = StateObject(wrappedValue: DirectoryViewModel(device: device))
+        } else {
+            // This case shouldn't realistically be hit if we only render this when ready, 
+            // but we provide a dummy fallback
+            _viewModel = StateObject(wrappedValue: DirectoryViewModel(device: nil))
+        }
     }
     
     var body: some View {
-        if deviceManager.selectedDevice != nil {
+        if case .ready(let device) = lifecycle.state {
             ZStack {
-                FileManagerView(deviceManager: deviceManager, viewModel: viewModel, onFocus: {})
+                FileManagerView(device: device, viewModel: viewModel, onFocus: {})
                 
-                if transferService.state != .idle {
+                if let activeSession = progressPublisher.activeSessions.values.first, activeSession.state != .idle {
                     Color.black.opacity(0.4).ignoresSafeArea()
-                    TransferProgressView {
+                    TransferProgressView(session: activeSession) {
                         viewModel.loadDirectory(viewModel.currentPath)
                     }
                 }

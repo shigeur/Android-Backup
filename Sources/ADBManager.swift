@@ -148,48 +148,97 @@ class ADBManager: ObservableObject {
             throw ADBError.executableNotFound
         }
         
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: adbPath)
-            process.arguments = arguments
-            
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-            
-            let startTime = Date()
-            
-            do {
-                try process.run()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: adbPath)
+        process.arguments = arguments
+        
+        return try await withTaskCancellationHandler {
+            return try await withCheckedThrowingContinuation { continuation in
+                let outputPipe = Pipe()
+                let errorPipe = Pipe()
+                let inputPipe = Pipe()
+                process.standardOutput = outputPipe
+                process.standardError = errorPipe
+                process.standardInput = inputPipe
                 
-                let outputData = try outputPipe.fileHandleForReading.readToEnd()
-                let errorData = try errorPipe.fileHandleForReading.readToEnd()
-                
-                process.waitUntilExit()
-                
-                let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
-                
-                let outputStr = (outputData != nil) ? String(decoding: outputData!, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : ""
-                let errorStr = (errorData != nil) ? String(decoding: errorData!, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : ""
-                
+                let startTime = Date()
                 let commandStr = "adb " + arguments.joined(separator: " ")
                 
-                Task { @MainActor in
-                    DebugLogger.shared.logOperation(
-                        directory: "ADB",
-                        command: commandStr,
-                        stdout: outputStr,
-                        stderr: errorStr,
-                        exitCode: process.terminationStatus,
-                        executionTimeMs: durationMs,
-                        filesParsed: nil
-                    )
+                // --- Install ALL handlers BEFORE process.run() ---
+                
+                let outputLock = NSLock()
+                var outputData = Data()
+                var errorData = Data()
+                
+                outputPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if !data.isEmpty {
+                        outputLock.lock()
+                        outputData.append(data)
+                        outputLock.unlock()
+                    }
                 }
                 
-                continuation.resume(returning: (stdout: outputStr, stderr: errorStr, exitCode: process.terminationStatus, durationMs: durationMs))
-            } catch {
-                continuation.resume(throwing: error)
+                errorPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if !data.isEmpty {
+                        outputLock.lock()
+                        errorData.append(data)
+                        outputLock.unlock()
+                    }
+                }
+                
+                process.terminationHandler = { p in
+                    // Allow a brief moment for final readabilityHandler callbacks to drain
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05) {
+                        outputPipe.fileHandleForReading.readabilityHandler = nil
+                        errorPipe.fileHandleForReading.readabilityHandler = nil
+                        
+                        let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+                        
+                        outputLock.lock()
+                        let finalOutput = outputData
+                        let finalError = errorData
+                        outputLock.unlock()
+                        
+                        let outputStr = String(decoding: finalOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                        let errorStr = String(decoding: finalError, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                        
+                        Task { @MainActor in
+                            DebugLogger.shared.logOperation(
+                                directory: "ADB",
+                                command: commandStr,
+                                stdout: outputStr,
+                                stderr: errorStr,
+                                exitCode: p.terminationStatus,
+                                executionTimeMs: durationMs,
+                                filesParsed: nil
+                            )
+                            TransferTrace.logADB(command: commandStr, stdout: outputStr, stderr: errorStr, exitCode: p.terminationStatus, durationMs: durationMs)
+                        }
+                        
+                        if Task.isCancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(returning: (stdout: outputStr, stderr: errorStr, exitCode: p.terminationStatus, durationMs: durationMs))
+                        }
+                    }
+                }
+                
+                // --- NOW launch the process, after all handlers are installed ---
+                do {
+                    try process.run()
+                } catch {
+                    // Clean up handlers since process never started
+                    outputPipe.fileHandleForReading.readabilityHandler = nil
+                    errorPipe.fileHandleForReading.readabilityHandler = nil
+                    process.terminationHandler = nil
+                    continuation.resume(throwing: error)
+                }
+            }
+        } onCancel: {
+            if process.isRunning {
+                process.terminate()
             }
         }
     }

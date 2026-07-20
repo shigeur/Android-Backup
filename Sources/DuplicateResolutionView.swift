@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct DuplicateResolutionView: View {
-    @ObservedObject var service = TransferService.shared
+    @ObservedObject var session: TransferSession
+    var onCancel: (() -> Void)? = nil
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -9,7 +10,7 @@ struct DuplicateResolutionView: View {
                 .font(.title2)
                 .fontWeight(.bold)
             
-            if let plan = service.transferPlan {
+            if let plan = session.transferPlan {
                 VStack(spacing: 12) {
                     InfoRow(label: "New Files", value: "\(plan.newJobs.count)")
                     InfoRow(label: "Modified", value: "\(plan.modifiedJobs.count)")
@@ -37,19 +38,18 @@ struct DuplicateResolutionView: View {
                     
                     HStack(spacing: 16) {
                         Button("Skip Duplicates") {
-                            Task { await service.executeTransfer(resolution: .skip) }
+                            Task { await TransferService.shared.executeTransfer(session: session, resolution: .skip) }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!service.isScanComplete)
+                        .disabled(!session.isScanComplete)
                         
                         Button("Replace All") {
-                            Task { await service.executeTransfer(resolution: .replace) }
+                            Task { await TransferService.shared.executeTransfer(session: session, resolution: .replace) }
                         }
-                        .disabled(!service.isScanComplete)
+                        .disabled(!session.isScanComplete)
                         
                         Button("Cancel") {
-                            service.cancel()
-                            service.reset()
+                            onCancel?()
                         }
                         .foregroundColor(.red)
                     }
@@ -57,20 +57,19 @@ struct DuplicateResolutionView: View {
                     HStack {
                         Spacer()
                         Button("Start Transfer") {
-                            Task { await service.executeTransfer(resolution: .skip) }
+                            Task { await TransferService.shared.executeTransfer(session: session, resolution: .skip) }
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(!service.isScanComplete)
+                        .disabled(!session.isScanComplete)
                         
                         Button("Cancel") {
-                            service.cancel()
-                            service.reset()
+                            onCancel?()
                         }
                         Spacer()
                     }
                 }
                 
-                if !service.isScanComplete {
+                if !session.isScanComplete {
                     HStack {
                         ProgressView().controlSize(.small)
                         Text("Scanning remaining files in background...")
@@ -84,6 +83,30 @@ struct DuplicateResolutionView: View {
             }
         }
         .padding()
+        .touchBar {
+            if let plan = session.transferPlan {
+                if !plan.duplicateJobs.isEmpty {
+                    Button(role: .cancel, action: { session.cancel(); TransferProgressPublisher.shared.removeSession(id: session.id) }) {
+                        Label("Cancel", systemImage: "xmark.circle.fill")
+                    }
+                    Button(action: { Task { await TransferService.shared.executeTransfer(session: session, resolution: .skip) } }) {
+                        Label("Skip", systemImage: "forward.fill")
+                    }
+                    Button(action: { Task { await TransferService.shared.executeTransfer(session: session, resolution: .replace) } }) {
+                        Label("Replace All", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button(role: .cancel, action: { session.cancel(); TransferProgressPublisher.shared.removeSession(id: session.id) }) {
+                        Label("Cancel", systemImage: "xmark.circle.fill")
+                    }
+                    Button(action: { Task { await TransferService.shared.executeTransfer(session: session, resolution: .skip) } }) {
+                        Label("Continue", systemImage: "arrow.right.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
     }
     
     private func formatBytes(_ bytes: Int64) -> String {

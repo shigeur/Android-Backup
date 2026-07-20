@@ -6,9 +6,9 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
     @Binding var selection: Set<String>
     var isLoading: Bool = false
     
-    var onDoubleClick: (Item) -> Void
-    var contextMenuProvider: (Set<String>) -> NSMenu?
-    var onFocus: () -> Void
+    var onDoubleClick: @MainActor (Item) -> Void
+    var contextMenuProvider: @MainActor (Set<String>) -> NSMenu?
+    var onFocus: @MainActor () -> Void
     
     func makeNSViewController(context: Context) -> FileBrowserViewController<Item> {
         let vc = FileBrowserViewController<Item>()
@@ -50,14 +50,22 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     
     private var items: [Item] = []
     
-    var onSelectionChange: ((Set<String>) -> Void)?
-    var onDoubleClick: ((Item) -> Void)?
-    var contextMenuProvider: ((Set<String>) -> NSMenu?)?
-    var onFocus: (() -> Void)?
+    var onSelectionChange: (@MainActor (Set<String>) -> Void)?
+    var onDoubleClick: (@MainActor (Item) -> Void)?
+    var contextMenuProvider: (@MainActor (Set<String>) -> NSMenu?)?
+    var onFocus: (@MainActor () -> Void)?
     
     // Prevent recursive updates
     private var isUpdatingSelection = false
     private var isUpdating = false
+    
+    init() {
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+    }
     private var isTableReady = false
     
     // Overlays

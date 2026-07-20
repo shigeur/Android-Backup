@@ -75,8 +75,15 @@ class LocalDirectoryViewModel: ObservableObject {
         print("[DEBUG-SYNC] 1. reloadCurrentDirectory() called for \(current.path). Target selection: \(newFileID ?? "nil")")
         
         Task {
+            TransferTrace.logDirectory(requested: true, path: current.path)
+            let startTime = Date()
+            TransferTrace.logDirectory(started: true, path: current.path)
             do {
                 let fetchedFiles = try directoryService.listDirectory(current)
+                
+                let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+                TransferTrace.logDirectory(finished: true, itemCount: fetchedFiles.count, durationMs: durationMs, path: current.path)
+                
                 print("[DEBUG-SYNC] 2. Fetched \(fetchedFiles.count) files from disk.")
                 
                 if self.files != fetchedFiles {
