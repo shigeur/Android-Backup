@@ -33,7 +33,7 @@ extension ADBFile: FileBrowserItem {
     
     var pasteboardWriter: NSPasteboardWriting {
         let item = NSPasteboardItem()
-        item.setString(path, forType: .string)
+        item.setString("android://\(path)", forType: .string)
         return item
     }
 }

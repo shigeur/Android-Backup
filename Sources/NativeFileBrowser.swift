@@ -8,8 +8,7 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
     
     var onDoubleClick: (Item) -> Void
     var contextMenuProvider: (Set<String>) -> NSMenu?
-    var onCopy: (() -> Void)? = nil
-    var onPaste: (() -> Void)? = nil
+    var onFocus: () -> Void
     
     func makeNSViewController(context: Context) -> FileBrowserViewController<Item> {
         let vc = FileBrowserViewController<Item>()
@@ -20,8 +19,7 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
         }
         vc.onDoubleClick = onDoubleClick
         vc.contextMenuProvider = contextMenuProvider
-        vc.onCopy = onCopy
-        vc.onPaste = onPaste
+        vc.onFocus = onFocus
         return vc
     }
     
@@ -29,23 +27,33 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
         nsViewController.update(items: items, selection: selection, isLoading: isLoading)
         nsViewController.onDoubleClick = onDoubleClick
         nsViewController.contextMenuProvider = contextMenuProvider
-        nsViewController.onCopy = onCopy
-        nsViewController.onPaste = onPaste
+        nsViewController.onFocus = onFocus
+    }
+}
+
+class FocusableTableView: NSTableView {
+    var onFocus: (() -> Void)?
+    
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome {
+            onFocus?()
+        }
+        return didBecome
     }
 }
 
 class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     
     private var scrollView: NSScrollView!
-    private var tableView: NSTableView!
+    private var tableView: FocusableTableView!
     
     private var items: [Item] = []
     
     var onSelectionChange: ((Set<String>) -> Void)?
     var onDoubleClick: ((Item) -> Void)?
     var contextMenuProvider: ((Set<String>) -> NSMenu?)?
-    var onCopy: (() -> Void)?
-    var onPaste: (() -> Void)?
+    var onFocus: (() -> Void)?
     
     // Prevent recursive updates
     private var isUpdatingSelection = false
@@ -67,16 +75,23 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         
-        tableView = NSTableView()
+        tableView = FocusableTableView()
         tableView.dataSource = self
         tableView.delegate = self
         tableView.allowsMultipleSelection = true
         tableView.rowSizeStyle = .medium
         tableView.style = .inset
         
+        // Enable dragging
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: true)
+        
         // Double click action
         tableView.doubleAction = #selector(handleDoubleClick)
         tableView.target = self
+        
+        // Focus debug
+        NotificationCenter.default.addObserver(forName: NSTextView.didBeginEditingNotification, object: nil, queue: .main) { _ in }
         
         // State restoration
         tableView.autosaveName = "NativeFileBrowserTable"
@@ -103,6 +118,11 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         tableView.addTableColumn(modCol)
         
         scrollView.documentView = tableView
+        
+        tableView.onFocus = { [weak self] in
+            self?.onFocus?()
+        }
+        
         view.addSubview(scrollView)
         
         // Overlays
@@ -174,28 +194,6 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         } else {
             super.rightMouseDown(with: event)
         }
-    }
-    
-    @objc func copy(_ sender: Any?) {
-        onCopy?()
-    }
-    
-    @objc func paste(_ sender: Any?) {
-        onPaste?()
-    }
-    
-    override func keyDown(with event: NSEvent) {
-        // Fallback for shortcut keys if the menu isn't catching it
-        if event.modifierFlags.contains(.command) {
-            if event.charactersIgnoringModifiers == "c" {
-                onCopy?()
-                return
-            } else if event.charactersIgnoringModifiers == "v" {
-                onPaste?()
-                return
-            }
-        }
-        super.keyDown(with: event)
     }
     
     func update(items: [Item], selection: Set<String>, isLoading: Bool = false) {
@@ -356,7 +354,16 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         guard row < items.count else { return nil }
+        print("[DebugLogger] NativeFileBrowser pasteboardWriterForRow: \(row) item: \(items[row].name)")
         return items[row].pasteboardWriter
+    }
+    
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+        print("[DebugLogger] NativeFileBrowser Dragging Session started with \(rowIndexes.count) items at \(screenPoint)")
+    }
+    
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        print("[DebugLogger] NativeFileBrowser Dragging Session ended with operation: \(operation.rawValue)")
     }
     
     // MARK: - NSTableViewDelegate

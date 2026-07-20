@@ -161,46 +161,62 @@ class FileOperationService: ObservableObject {
         }
     }
     
-    func copyMacFiles(urls: [URL], to destination: URL) async {
+    func copyMacFiles(urls: [URL], to destination: URL, sessionID: String? = nil, onProgress: TransferEngine.TransferProgressCallback? = nil) async {
+        let sid = sessionID ?? UUID().uuidString
         isOperating = true
         let total = urls.count
         var count = 0
+        onProgress?(TransferProgress(sessionID: sid, stage: .started, percentage: 0, filesCompleted: 0, totalFiles: total))
         for url in urls {
             let newURL = destination.appendingPathComponent(url.lastPathComponent)
             do {
                 try FileManager.default.copyItem(at: url, to: newURL)
+                let pct = Double(count) / Double(total)
+                onProgress?(TransferProgress(sessionID: sid, stage: .copying, percentage: pct, filesCompleted: count, totalFiles: total, currentFileName: url.lastPathComponent))
             } catch {
                 print("Failed to copy \(url) to \(newURL): \(error)")
                 self.error = error.localizedDescription
+                onProgress?(TransferProgress(sessionID: sid, stage: .failed, errorMessage: error.localizedDescription))
+                return
             }
             count += 1
             operationProgress = Double(count) / Double(total)
         }
         isOperating = false
+        onProgress?(TransferProgress(sessionID: sid, stage: .refreshing))
         await DirectoryCache.shared.invalidateMacCache(for: destination.path)
+        onProgress?(TransferProgress(sessionID: sid, stage: .completed, percentage: 1.0, filesCompleted: total, totalFiles: total))
     }
     
-    func moveMacFiles(urls: [URL], to destination: URL) async {
+    func moveMacFiles(urls: [URL], to destination: URL, sessionID: String? = nil, onProgress: TransferEngine.TransferProgressCallback? = nil) async {
+        let sid = sessionID ?? UUID().uuidString
         isOperating = true
         let total = urls.count
         var count = 0
+        onProgress?(TransferProgress(sessionID: sid, stage: .started, percentage: 0, filesCompleted: 0, totalFiles: total))
         for url in urls {
             let newURL = destination.appendingPathComponent(url.lastPathComponent)
             do {
                 try FileManager.default.moveItem(at: url, to: newURL)
+                let pct = Double(count) / Double(total)
+                onProgress?(TransferProgress(sessionID: sid, stage: .copying, percentage: pct, filesCompleted: count, totalFiles: total, currentFileName: url.lastPathComponent))
             } catch {
                 print("Failed to move \(url) to \(newURL): \(error)")
                 self.error = error.localizedDescription
+                onProgress?(TransferProgress(sessionID: sid, stage: .failed, errorMessage: error.localizedDescription))
+                return
             }
             count += 1
             operationProgress = Double(count) / Double(total)
         }
         isOperating = false
         
+        onProgress?(TransferProgress(sessionID: sid, stage: .refreshing))
         let oldParents = Set(urls.map { $0.deletingLastPathComponent().path })
         for parent in oldParents {
             await DirectoryCache.shared.invalidateMacCache(for: parent)
         }
         await DirectoryCache.shared.invalidateMacCache(for: destination.path)
+        onProgress?(TransferProgress(sessionID: sid, stage: .completed, percentage: 1.0, filesCompleted: total, totalFiles: total))
     }
 }

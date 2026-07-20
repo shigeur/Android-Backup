@@ -91,6 +91,9 @@ class TransferService: ObservableObject {
     private var isCancelled = false
     private var progressTimer: AnyCancellable?
     
+    var currentSessionID: String?
+    var onProgressCallback: TransferEngine.TransferProgressCallback?
+    
     private init() {}
     
     func cancel() {
@@ -127,8 +130,14 @@ class TransferService: ObservableObject {
         sourcePaths: [String],
         destination: URL,
         isBackup: Bool = false,
-        duplicateMode: DuplicateDetectionMode = .fast
+        duplicateMode: DuplicateDetectionMode = .fast,
+        sessionID: String? = nil,
+        onProgress: TransferEngine.TransferProgressCallback? = nil
     ) async {
+        self.currentSessionID = sessionID ?? UUID().uuidString.prefix(8).uppercased()
+        self.onProgressCallback = onProgress
+        
+        self.onProgressCallback?(TransferProgress(sessionID: self.currentSessionID!, stage: .generatingPlan))
         isCancelled = false
         state = .scanning
         isScanComplete = false
@@ -176,11 +185,15 @@ class TransferService: ObservableObject {
             // Auto transition to preflight if the user hasn't cancelled
             if !isCancelled {
                 state = .preflight
+                self.onProgressCallback?(TransferProgress(sessionID: self.currentSessionID!, stage: .waitingForConfirmation, totalFiles: self.totalFiles, totalBytes: self.totalBytesFound))
+            } else {
+                self.onProgressCallback?(TransferProgress(sessionID: self.currentSessionID!, stage: .cancelled))
             }
         } catch {
             isScanComplete = true
             progressTimer?.cancel()
             state = .error(error.localizedDescription)
+            self.onProgressCallback?(TransferProgress(sessionID: self.currentSessionID!, stage: .failed, errorMessage: error.localizedDescription))
         }
     }
     
@@ -225,7 +238,17 @@ class TransferService: ObservableObject {
             }
         } else {
             // Mac to Android
-            if let record = try? BackupRepository.shared.getFile(deviceSerial: device.serial, relativePath: job.relativePath) {
+            let destDir = (job.remotePath as NSString).deletingLastPathComponent
+            let fileName = (job.remotePath as NSString).lastPathComponent
+            
+            if let cachedFiles = await DirectoryCache.shared.getAndroidCache(for: destDir),
+               let existing = cachedFiles.first(where: { $0.name == fileName }) {
+                if existing.size == job.size {
+                    isDuplicate = true
+                } else {
+                    isModified = true
+                }
+            } else if let record = try? BackupRepository.shared.getFile(deviceSerial: device.serial, relativePath: job.relativePath) {
                 if record.size == job.size {
                     isDuplicate = true
                 } else {
@@ -305,6 +328,9 @@ class TransferService: ObservableObject {
     func executeTransfer(resolution: DuplicateResolution) async {
         guard let plan = transferPlan else { return }
         
+        let sessionID = currentSessionID ?? UUID().uuidString.prefix(8).uppercased()
+        onProgressCallback?(TransferProgress(sessionID: sessionID, stage: .preparing))
+        
         state = .copying
         let startTime = Date()
         
@@ -324,6 +350,8 @@ class TransferService: ObservableObject {
         copiedFiles = 0
         bytesCopied = 0
         elapsedTime = 0
+        
+        onProgressCallback?(TransferProgress(sessionID: sessionID, stage: .started, percentage: 0, filesCompleted: 0, totalFiles: totalFiles, bytesCopied: 0, totalBytes: totalBytesToCopy))
         
         // Start Progress Timer
         progressTimer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect().sink { [weak self] _ in
@@ -345,6 +373,8 @@ class TransferService: ObservableObject {
             currentFileSize = job.size
             currentFileBytesCopied = 0
             progress = Double(copiedFiles + skippedFiles) / Double(totalFiles)
+            
+            onProgressCallback?(TransferProgress(sessionID: sessionID, stage: .copying, percentage: progress, filesCompleted: copiedFiles + skippedFiles, totalFiles: totalFiles, bytesCopied: bytesCopied, totalBytes: totalBytesToCopy, currentFileName: URL(fileURLWithPath: currentFile).lastPathComponent, estimatedRemainingTime: nil))
             
             // For Android to Mac, we can poll the local file size to update currentFileBytesCopied
             var filePollTimer: AnyCancellable? = nil
@@ -408,11 +438,14 @@ class TransferService: ObservableObject {
                 filePollTimer?.cancel()
                 // Log and continue, or fail the whole thing
                 print("Failed to transfer \(job.relativePath): \(error)")
+                onProgressCallback?(TransferProgress(sessionID: sessionID, stage: .failed, errorMessage: error.localizedDescription))
             }
         }
         
         progressTimer?.cancel()
         progressTimer = nil
+        
+        onProgressCallback?(TransferProgress(sessionID: sessionID, stage: .refreshing))
         
         state = .finished
         progress = 1.0
@@ -425,6 +458,17 @@ class TransferService: ObservableObject {
             await DirectoryCache.shared.invalidateMacCache(for: parentStr)
         } else {
             await DirectoryCache.shared.invalidateAndroidCache(for: plan.destination.path)
+            let uniqueParentDirs = Set(plan.newJobs.map { ($0.relativePath as NSString).deletingLastPathComponent })
+            for path in uniqueParentDirs {
+                await DirectoryCache.shared.invalidateAndroidCache(for: (plan.destination.path as NSString).appendingPathComponent(path))
+            }
+        }
+        
+        onProgressCallback?(TransferProgress(sessionID: sessionID, stage: .completed, percentage: 1.0, filesCompleted: copiedFiles + skippedFiles, totalFiles: totalFiles, bytesCopied: bytesCopied, totalBytes: totalBytesToCopy))
+        
+        // Auto reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            self.reset()
         }
     }
     

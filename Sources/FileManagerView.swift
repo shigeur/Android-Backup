@@ -1,9 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
 struct FileManagerView: View {
     @ObservedObject var deviceManager: DeviceManager
     @ObservedObject var viewModel: DirectoryViewModel
+    var onFocus: () -> Void
     
     @State private var showDeleteConfirmation = false
     @State private var itemsToDelete: [String] = []
@@ -97,56 +99,23 @@ struct FileManagerView: View {
                         .listStyle(.sidebar)
                         .frame(minWidth: 150, idealWidth: 200, maxWidth: 300, maxHeight: .infinity)
                         
-                        NativeFileBrowser(items: viewModel.files, selection: $viewModel.selectedFileIDs, isLoading: viewModel.isLoading) { item in
-                            if item.isDirectory {
-                                viewModel.loadDirectory(item.path)
-                            }
-                        } contextMenuProvider: { selection in
-                            return buildContextMenu(selection: selection)
-                        } onCopy: {
-                            ClipboardService.shared.copy(paths: Array(viewModel.selectedFileIDs), platform: .android, deviceSerial: deviceManager.selectedDevice?.serial)
-                        } onPaste: {
-                            performPaste()
-                        }
+                        NativeFileBrowser(
+                            items: viewModel.files,
+                            selection: $viewModel.selectedFileIDs,
+                            isLoading: viewModel.isLoading,
+                            onDoubleClick: { item in
+                                if item.isDirectory {
+                                    viewModel.loadDirectory(item.path)
+                                }
+                            },
+                            contextMenuProvider: { selection in
+                                return buildContextMenu(selection: selection)
+                            },
+                            onFocus: onFocus
+                        )
                         // Menu is handled by NativeFileBrowser now
                         .frame(minWidth: 400, maxHeight: .infinity)
-                        .background {
-                            Group {
-                                Button(action: { ClipboardService.shared.copy(paths: Array(viewModel.selectedFileIDs), platform: .android, deviceSerial: deviceManager.selectedDevice?.serial) }) { }
-                                    .keyboardShortcut("c", modifiers: .command)
-                                    
-                                Button(action: { ClipboardService.shared.cut(paths: Array(viewModel.selectedFileIDs), platform: .android, deviceSerial: deviceManager.selectedDevice?.serial) }) { }
-                                    .keyboardShortcut("x", modifiers: .command)
-                                    
-                                Button(action: { performPaste() }) { }
-                                    .keyboardShortcut("v", modifiers: .command)
-                                    
-                                Button(action: { viewModel.selectedFileIDs = Set(viewModel.files.map { $0.id }) }) { }
-                                    .keyboardShortcut("a", modifiers: .command)
-                                    
-                                Button(action: { triggerDelete(selection: viewModel.selectedFileIDs) }) { }
-                                    .keyboardShortcut(.delete, modifiers: [])
-                                    
-                                Button(action: { triggerDelete(selection: viewModel.selectedFileIDs) }) { }
-                                    .keyboardShortcut(.delete, modifiers: .command)
-                                    
-                                Button(action: { viewModel.loadDirectory(viewModel.currentPath) }) { }
-                                    .keyboardShortcut("r", modifiers: .command)
-                                    
-                                Button(action: {
-                                    if let first = viewModel.selectedFileIDs.first, viewModel.files.contains(where: { $0.id == first }) {
-                                        // QuickLook
-                                    }
-                                }) { }
-                                .keyboardShortcut(.space, modifiers: [])
-                                
-                                Button(action: { showNewFolderSheet = true }) { }
-                                    .keyboardShortcut("n", modifiers: [.command, .shift])
-                            }
-                            .opacity(0)
-                        }
                     }
-                    .frame(maxHeight: .infinity)
                     
                     Divider()
                     HStack {
@@ -270,24 +239,7 @@ struct FileManagerView: View {
     }
     
     private func performPaste() {
-        guard let item = ClipboardService.shared.currentItem, let device = deviceManager.selectedDevice else { return }
-        let destURL = URL(fileURLWithPath: viewModel.currentPath)
-        
-        if item.platform == .mac {
-            Task {
-                await TransferService.shared.prepareTransfer(
-                    device: device,
-                    direction: .macToAndroid,
-                    sourcePaths: item.paths,
-                    destination: destURL,
-                    isBackup: false
-                )
-            }
-        } else {
-            // Android to Android
-        }
-        
-        if item.action == .cut { ClipboardService.shared.clear() }
+        TransferEngine.shared.executePaste(destPlatform: .android, destPath: viewModel.currentPath, destURL: URL(fileURLWithPath: viewModel.currentPath))
     }
     
     private func iconForFile(_ file: ADBFile) -> String {
@@ -306,40 +258,42 @@ struct FileManagerView: View {
     
     private func buildContextMenu(selection: Set<String>) -> NSMenu? {
         let menu = NSMenu()
+        let vm = viewModel
+        let dm = deviceManager
         
         let openItem = ClosureMenuItem(title: "Open", keyEquivalent: "") {
             if let selectedID = selection.first,
-               let file = self.viewModel.files.first(where: { $0.id == selectedID }),
+               let file = vm.files.first(where: { $0.id == selectedID }),
                file.isDirectory {
-                self.viewModel.loadDirectory(file.path)
+                vm.loadDirectory(file.path)
             }
         }
         menu.addItem(openItem)
         
         menu.addItem(NSMenuItem.separator())
         
-        let copyItem = ClosureMenuItem(title: "Copy", keyEquivalent: "c") {
-            ClipboardService.shared.copy(paths: Array(selection), platform: .android, deviceSerial: self.deviceManager.selectedDevice?.serial)
+        let copyItem = ClosureMenuItem(title: "Copy", keyEquivalent: "") {
+            ClipboardManager.shared.copy(paths: Array(selection), platform: .android, deviceSerial: dm.selectedDevice?.serial)
         }
         copyItem.isEnabled = !selection.isEmpty
         menu.addItem(copyItem)
         
-        let cutItem = ClosureMenuItem(title: "Cut", keyEquivalent: "x") {
-            ClipboardService.shared.cut(paths: Array(selection), platform: .android, deviceSerial: self.deviceManager.selectedDevice?.serial)
+        let cutItem = ClosureMenuItem(title: "Cut", keyEquivalent: "") {
+            ClipboardManager.shared.cut(paths: Array(selection), platform: .android, deviceSerial: dm.selectedDevice?.serial)
         }
         cutItem.isEnabled = !selection.isEmpty
         menu.addItem(cutItem)
         
-        let pasteItem = ClosureMenuItem(title: "Paste", keyEquivalent: "v") {
-            self.performPaste()
+        let pasteItem = ClosureMenuItem(title: "Paste", keyEquivalent: "") {
+            performPaste()
         }
-        pasteItem.isEnabled = ClipboardService.shared.hasContent
+        pasteItem.isEnabled = ClipboardManager.shared.hasContent
         menu.addItem(pasteItem)
         
         menu.addItem(NSMenuItem.separator())
         
         let renameItem = ClosureMenuItem(title: "Rename", keyEquivalent: "") {
-            self.triggerRename(selection: selection)
+            triggerRename(selection: selection)
         }
         renameItem.isEnabled = selection.count == 1
         menu.addItem(renameItem)
@@ -347,7 +301,7 @@ struct FileManagerView: View {
         menu.addItem(NSMenuItem.separator())
         
         let deleteItem = ClosureMenuItem(title: "Delete", keyEquivalent: "\u{08}") {
-            self.triggerDelete(selection: selection)
+            triggerDelete(selection: selection)
         }
         deleteItem.isEnabled = !selection.isEmpty
         menu.addItem(deleteItem)
@@ -355,12 +309,12 @@ struct FileManagerView: View {
         menu.addItem(NSMenuItem.separator())
         
         let newFolderItem = ClosureMenuItem(title: "New Folder", keyEquivalent: "") {
-            self.showNewFolderSheet = true
+            showNewFolderSheet = true
         }
         menu.addItem(newFolderItem)
         
         let refreshItem = ClosureMenuItem(title: "Refresh", keyEquivalent: "r") {
-            self.viewModel.loadDirectory(self.viewModel.currentPath)
+            vm.loadDirectory(vm.currentPath)
         }
         menu.addItem(refreshItem)
         
@@ -379,10 +333,11 @@ struct FileManagerView: View {
     }
 }
 
+@MainActor
 class ClosureMenuItem: NSMenuItem {
-    private var actionClosure: () -> Void
+    private var actionClosure: @MainActor () -> Void
     
-    init(title: String, keyEquivalent: String, action: @escaping () -> Void) {
+    init(title: String, keyEquivalent: String, action: @escaping @MainActor () -> Void) {
         self.actionClosure = action
         super.init(title: title, action: #selector(invokeAction), keyEquivalent: keyEquivalent)
         self.target = self
@@ -425,7 +380,7 @@ struct StandaloneFileManagerView: View {
     var body: some View {
         if deviceManager.selectedDevice != nil {
             ZStack {
-                FileManagerView(deviceManager: deviceManager, viewModel: viewModel)
+                FileManagerView(deviceManager: deviceManager, viewModel: viewModel, onFocus: {})
                 
                 if transferService.state != .idle {
                     Color.black.opacity(0.4).ignoresSafeArea()

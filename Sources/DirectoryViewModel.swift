@@ -45,6 +45,8 @@ class DirectoryViewModel: ObservableObject {
                 DebugLogger.shared.lastError = "none"
                 DebugLogger.shared.lastDirectory = path
                 
+                DiagnosticLogger.shared.log("Directory Loaded (Android): \(path)", category: .directory)
+                
             } catch {
                 if self.files.isEmpty {
                     self.error = error.localizedDescription

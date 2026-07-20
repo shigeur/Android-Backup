@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ApplicationMenu: Commands {
     @Environment(\.openWindow) private var openWindow
+    @AppStorage("developerModeEnabled") private var developerModeEnabled = false
     
     var body: some Commands {
         // App Menu
@@ -42,6 +43,17 @@ struct ApplicationMenu: Commands {
                 .disabled(true)
             Button("Compare Files") { }
                 .disabled(true)
+            
+            Divider()
+            
+            Toggle("Developer Mode", isOn: $developerModeEnabled)
+            
+            if developerModeEnabled {
+                Button("Show Diagnostic Panel") {
+                    openWindow(id: "diagnostics")
+                }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+            }
         }
         
         // Help Menu

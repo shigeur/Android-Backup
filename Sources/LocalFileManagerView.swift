@@ -1,8 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Combine
 
+@MainActor
 struct LocalFileManagerView: View {
     @ObservedObject var viewModel: LocalDirectoryViewModel
+    var onFocus: () -> Void
     
     @State private var showDeleteConfirmation = false
     @State private var itemsToDelete: [String] = []
@@ -89,57 +92,20 @@ struct LocalFileManagerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                NativeFileBrowser(items: viewModel.files, selection: $viewModel.selectedFileIDs, isLoading: viewModel.isLoading) { item in
-                    if item.isDirectory {
-                        viewModel.loadDirectory(item.url)
-                    } else {
-                        NSWorkspace.shared.open(item.url)
-                    }
-                } contextMenuProvider: { selection in
-                    return buildContextMenu(selection: selection)
-                } onCopy: {
-                    ClipboardService.shared.copy(paths: Array(viewModel.selectedFileIDs), platform: .mac)
-                } onPaste: {
-                    performPaste()
-                }
-                // Context Menu handled by NativeFileBrowser
-                .background {
-                    Group {
-                        Button(action: { ClipboardService.shared.copy(paths: Array(viewModel.selectedFileIDs), platform: .mac) }) { }
-                            .keyboardShortcut("c", modifiers: .command)
-                            
-                        Button(action: { ClipboardService.shared.cut(paths: Array(viewModel.selectedFileIDs), platform: .mac) }) { }
-                            .keyboardShortcut("x", modifiers: .command)
-                            
-                        Button(action: { performPaste() }) { }
-                            .keyboardShortcut("v", modifiers: .command)
-                            
-                        Button(action: { viewModel.selectedFileIDs = Set(viewModel.files.map { $0.id }) }) { }
-                            .keyboardShortcut("a", modifiers: .command)
-                            
-                        Button(action: { triggerDelete(selection: viewModel.selectedFileIDs) }) { }
-                            .keyboardShortcut(.delete, modifiers: [])
-                            
-                        Button(action: { triggerDelete(selection: viewModel.selectedFileIDs) }) { }
-                            .keyboardShortcut(.delete, modifiers: .command)
-                            
-                        Button(action: { viewModel.refresh() }) { }
-                            .keyboardShortcut("r", modifiers: .command)
-                            
-                        Button(action: { showNewFolderSheet = true }) { }
-                            .keyboardShortcut("n", modifiers: [.command, .shift])
-                            
-                        Button(action: {
-                            let urls = viewModel.selectedFileIDs.map { URL(fileURLWithPath: $0) }
-                            Task {
-                                do { try await coordinator.duplicate(urls: Array(urls)) }
-                                catch { operationError = error.localizedDescription }
-                            }
-                        }) { }
-                            .keyboardShortcut("d", modifiers: .command)
-                    }
-                    .opacity(0)
-                }
+                NativeFileBrowser(
+                    items: viewModel.files,
+                    selection: $viewModel.selectedFileIDs,
+                    isLoading: viewModel.isLoading,
+                    onDoubleClick: { item in
+                        if item.isDirectory {
+                            viewModel.loadDirectory(item.url)
+                        }
+                    },
+                    contextMenuProvider: { selection in
+                        return buildContextMenu(selection: selection)
+                    },
+                    onFocus: onFocus
+                )
                 .sheet(isPresented: $showNewFolderSheet) {
                     NewFolderSheet(
                         parentURL: viewModel.currentURL,
@@ -196,6 +162,9 @@ struct LocalFileManagerView: View {
             .background(Color(NSColor.windowBackgroundColor))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("MacTriggerDelete"))) { _ in
+            triggerDelete(selection: viewModel.selectedFileIDs)
+        }
         .onAppear {
             if viewModel.currentURL == nil {
                 viewModel.loadDirectory(rootURL)
@@ -264,76 +233,68 @@ struct LocalFileManagerView: View {
     }
     
     private func performPaste() {
-        guard let item = ClipboardService.shared.currentItem, let dest = viewModel.currentURL else { return }
+        guard let item = ClipboardManager.shared.currentItem, let dest = viewModel.currentURL else { return }
         
-        if item.platform == .android {
-            guard let deviceSerial = item.sourceDeviceSerial else { return }
-            let device = AndroidDevice(serial: deviceSerial, model: "Unknown", status: "device")
-            Task {
-                await TransferService.shared.prepareTransfer(
-                    device: device,
-                    direction: .androidToMac,
-                    sourcePaths: item.paths,
-                    destination: dest,
-                    isBackup: false
-                )
-            }
-        } else {
-            let urls = item.paths.map { URL(fileURLWithPath: $0) }
-            if item.action == .copy {
-                Task { await FileOperationService.shared.duplicateMacFiles(urls: urls) }
+        let urls = item.paths.map { URL(fileURLWithPath: $0) }
+        
+        Task {
+            if item.platform == .mac {
+                if item.action == .cut {
+                    await FileOperationService.shared.moveMacFiles(urls: urls, to: dest)
+                } else {
+                    await FileOperationService.shared.copyMacFiles(urls: urls, to: dest)
+                }
             } else {
-                // macOS to macOS Move could be implemented here
+                guard let deviceSerial = item.sourceDeviceSerial, let device = DeviceManager.shared.selectedDevice, device.serial == deviceSerial else { return }
+                await TransferService.shared.prepareTransfer(device: device, direction: .androidToMac, sourcePaths: item.paths, destination: dest, isBackup: false)
             }
         }
         
-        if item.action == .cut { ClipboardService.shared.clear() }
+        if item.action == .cut { ClipboardManager.shared.clear() }
     }
     
     private func buildContextMenu(selection: Set<String>) -> NSMenu? {
         let menu = NSMenu()
+        let vm = viewModel
         
         let openItem = ClosureMenuItem(title: "Open", keyEquivalent: "") {
-            for id in selection {
-                let url = URL(fileURLWithPath: id)
-                NSWorkspace.shared.open(url)
+            if let selectedID = selection.first,
+               let file = vm.files.first(where: { $0.id == selectedID }),
+               file.isDirectory {
+                vm.loadDirectory(URL(fileURLWithPath: file.path))
+            } else {
+                for id in selection {
+                    let url = URL(fileURLWithPath: id)
+                    NSWorkspace.shared.open(url)
+                }
             }
         }
-        openItem.isEnabled = !selection.isEmpty
         menu.addItem(openItem)
-        
-        let revealItem = ClosureMenuItem(title: "Reveal in Finder", keyEquivalent: "") {
-            for id in selection {
-                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: id)])
-            }
-        }
-        revealItem.isEnabled = !selection.isEmpty
-        menu.addItem(revealItem)
         
         menu.addItem(NSMenuItem.separator())
         
-        let copyItem = ClosureMenuItem(title: "Copy", keyEquivalent: "c") {
-            ClipboardService.shared.copy(paths: Array(selection), platform: .mac)
+        let copyItem = ClosureMenuItem(title: "Copy", keyEquivalent: "") {
+            ClipboardManager.shared.copy(paths: Array(selection), platform: .mac)
         }
         copyItem.isEnabled = !selection.isEmpty
         menu.addItem(copyItem)
         
-        let cutItem = ClosureMenuItem(title: "Cut", keyEquivalent: "x") {
-            ClipboardService.shared.cut(paths: Array(selection), platform: .mac)
+        let cutItem = ClosureMenuItem(title: "Cut", keyEquivalent: "") {
+            ClipboardManager.shared.cut(paths: Array(selection), platform: .mac)
         }
         cutItem.isEnabled = !selection.isEmpty
         menu.addItem(cutItem)
         
-        let pasteItem = ClosureMenuItem(title: "Paste", keyEquivalent: "v") {
-            self.performPaste()
+        let pasteItem = ClosureMenuItem(title: "Paste", keyEquivalent: "") {
+            performPaste()
         }
-        pasteItem.isEnabled = ClipboardService.shared.hasContent
+        pasteItem.isEnabled = ClipboardManager.shared.hasContent
         menu.addItem(pasteItem)
         
         menu.addItem(NSMenuItem.separator())
         
         let renameItem = ClosureMenuItem(title: "Rename", keyEquivalent: "") {
-            self.triggerRename(selection: selection)
+            triggerRename(selection: selection)
         }
         renameItem.isEnabled = selection.count == 1
         menu.addItem(renameItem)
@@ -350,8 +311,8 @@ struct LocalFileManagerView: View {
         duplicateItem.isEnabled = !selection.isEmpty
         menu.addItem(duplicateItem)
         
-        let deleteItem = ClosureMenuItem(title: "Move to Trash", keyEquivalent: "\u{08}") {
-            self.triggerDelete(selection: selection)
+        let deleteItem = ClosureMenuItem(title: "Delete", keyEquivalent: "\u{08}") {
+            triggerDelete(selection: selection)
         }
         deleteItem.isEnabled = !selection.isEmpty
         menu.addItem(deleteItem)
@@ -359,12 +320,12 @@ struct LocalFileManagerView: View {
         menu.addItem(NSMenuItem.separator())
         
         let newFolderItem = ClosureMenuItem(title: "New Folder", keyEquivalent: "") {
-            self.showNewFolderSheet = true
+            showNewFolderSheet = true
         }
         menu.addItem(newFolderItem)
         
         let refreshItem = ClosureMenuItem(title: "Refresh", keyEquivalent: "r") {
-            self.viewModel.refresh()
+            vm.refresh()
         }
         menu.addItem(refreshItem)
         

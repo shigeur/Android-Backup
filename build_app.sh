@@ -54,6 +54,19 @@ cat <<EOF > "${APP_BUNDLE}/Contents/Info.plist"
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.antigravity.androidbackup.file</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Android File</string>
+        </dict>
+    </array>
 </dict>
 </plist>
 EOF

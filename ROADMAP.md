@@ -18,4 +18,7 @@ Android Backup is actively developed. While the core ADB transfer functionality 
 - [ ] **Wi-Fi Debugging Support:** Seamlessly connect and transfer files over Wi-Fi without needing a USB cable.
 - [ ] **Quick Look Integration:** Preview images and text files directly from the Android device before copying.
 
+### Developer Tooling
+- [ ] **Developer Session Recorder:** A lightweight, opt-in developer tool to automatically record significant application events into a chronological session log (JSON/TXT). Intended for debugging, regression analysis, GitHub issue reporting, and AI-assisted troubleshooting. Must have zero impact when disabled, include rotation logic, privacy filters (metadata only), and comprehensive session summaries (device state, transfer pipeline states, UI interactions).
+
 *Note: This roadmap is subject to change based on community feedback and developer availability.*

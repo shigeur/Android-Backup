@@ -22,5 +22,10 @@ struct AndroidBackupApp: App {
         Settings {
             SettingsView()
         }
+        
+        Window("Developer Diagnostics", id: "diagnostics") {
+            DiagnosticPanelView()
+        }
+        .windowStyle(.hiddenTitleBar)
     }
 }

@@ -40,6 +40,8 @@ class LocalDirectoryViewModel: ObservableObject {
                 }
                 
                 self.isLoading = false
+                
+                DiagnosticLogger.shared.log("Directory Loaded (Mac): \(url.path)", category: .directory)
             } catch {
                 if self.files.isEmpty {
                     self.error = error.localizedDescription

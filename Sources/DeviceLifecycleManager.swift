@@ -81,12 +81,13 @@ class DeviceLifecycleManager: ObservableObject {
     }
     
     private func updateState(_ newState: DeviceConnectionState) {
-        if state == newState {
+        if state != newState {
+            print("[\(Date())] Transition: \(state) -> \(newState)")
+            state = newState
+            DiagnosticLogger.shared.log("Device state changed to: \(newState)", category: .device)
+        } else {
             print("[\(Date())] State Transition Ignored: \(newState)")
-            return
         }
-        print("[\(Date())] Transition: \(state) -> \(newState)")
-        state = newState
     }
     
     private func runSearchLoop(sessionId: UUID) async {
