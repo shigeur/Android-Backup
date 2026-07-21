@@ -51,7 +51,7 @@ class DirectoryService {
         }
         // Robust command: append trailing slash so symlinked directories like /sdcard are traversed
         let targetPath = path.hasSuffix("/") ? path : path + "/"
-        let safePath = "'" + targetPath.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let safePath = targetPath.adbEscaped
         let formatStr = "'%F||%s||%Y||%n'"
         let shellCmd = "find \(safePath) -maxdepth 1 -mindepth 1 -exec stat -c \(formatStr) {} \\;"
         
@@ -116,7 +116,7 @@ class DirectoryService {
     
     func fileExists(_ path: String) async -> Bool {
         guard let device = device else { return false }
-        let command = ["-s", device.serial, "shell", "test", "-e", path, "&&", "echo", "1", "||", "echo", "0"]
+        let command = ["-s", device.serial, "shell", "test -e \(path.adbEscaped) && echo 1 || echo 0"]
         if let out = try? await ADBManager.shared.run(command), out == "1" {
             return true
         }

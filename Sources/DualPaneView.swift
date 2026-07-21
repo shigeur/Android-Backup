@@ -53,50 +53,7 @@ struct DualPaneView: View {
                                     guard let device = lifecycle.currentDevice else { return false }
                                     let destPath = androidViewModel.currentPath
                                     let destURL = URL(fileURLWithPath: destPath)
-                                    var handled = false
-                                    
-                                    for provider in providers {
-                                        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                                            print("[DebugLogger] DualPaneView Android Pane provider has fileURL")
-                                            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
-                                                print("[DebugLogger] DualPaneView Android Pane loadItem completed, error: \(String(describing: error))")
-                                                if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
-                                                    print("[DebugLogger] DualPaneView Android Pane loading url: \(url.path)")
-                                                    Task { @MainActor in
-                                                        print("[DebugLogger] DualPaneView Android Pane executing transfer mac->android")
-                                                        TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .mac, sourceDeviceSerial: nil, sourcePaths: [url.path], destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
-                                                    }
-                                                } else {
-                                                    print("[DebugLogger] DualPaneView Android Pane item is not Data or URL could not be parsed: \(String(describing: item))")
-                                                }
-                                            }
-                                            handled = true
-                                        } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                                            print("[DebugLogger] DualPaneView Android Pane provider has plainText")
-                                            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { (item, error) in
-                                                print("[DebugLogger] DualPaneView Android Pane loadItem completed, error: \(String(describing: error))")
-                                                var parsedPath: String?
-                                                if let data = item as? Data, let str = String(data: data, encoding: .utf8) {
-                                                    parsedPath = str
-                                                } else if let str = item as? String {
-                                                    parsedPath = str
-                                                }
-                                                
-                                                if let pathStr = parsedPath, pathStr.hasPrefix("android://") {
-                                                    let path = String(pathStr.dropFirst("android://".count))
-                                                    print("[DebugLogger] DualPaneView Android Pane loading path: \(path)")
-                                                    Task { @MainActor in
-                                                        print("[DebugLogger] DualPaneView Android Pane executing transfer android->android")
-                                                        TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .android, sourceDeviceSerial: device.serial, sourcePaths: [path], destPlatform: .android, destPath: destPath, destURL: destURL, onProgress: handleProgress)
-                                                    }
-                                                } else {
-                                                    print("[DebugLogger] DualPaneView Android Pane item is not Data or path could not be parsed/has no prefix: \(String(describing: item))")
-                                                }
-                                            }
-                                            handled = true
-                                        }
-                                    }
-                                    return handled
+                                    return handleDrop(providers: providers, targetPlatform: .android, destPath: destPath, destURL: destURL, deviceSerial: device.serial)
                                 }
                         
                         // Right pane: macOS Local
@@ -118,44 +75,8 @@ struct DualPaneView: View {
                             .frame(minWidth: 300, maxWidth: .infinity, maxHeight: .infinity)
                             .onDrop(of: [UTType.fileURL, UTType.plainText], isTargeted: nil) { providers in
                                 print("[DebugLogger] DualPaneView Mac Pane received onDrop with \(providers.count) providers")
-                                    guard let device = lifecycle.currentDevice, let destURL = localViewModel.currentURL else { return false }
-                                var handled = false
-                                
-                                for provider in providers {
-                                    if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                                        print("[DebugLogger] DualPaneView Mac Pane provider has fileURL")
-                                        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
-                                            print("[DebugLogger] DualPaneView Mac Pane loadItem completed, error: \(String(describing: error))")
-                                            if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
-                                                print("[DebugLogger] DualPaneView Mac Pane loading url: \(url.path)")
-                                                Task { @MainActor in
-                                                    print("[DebugLogger] DualPaneView Mac Pane executing transfer mac->mac")
-                                                    TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .mac, sourceDeviceSerial: nil, sourcePaths: [url.path], destPlatform: .mac, destPath: destURL.path, destURL: destURL, onProgress: handleProgress)
-                                                }
-                                            } else {
-                                                print("[DebugLogger] DualPaneView Mac Pane item is not Data or URL could not be parsed: \(String(describing: item))")
-                                            }
-                                        }
-                                        handled = true
-                                    } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                                        provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { (item, error) in
-                                            var parsedPath: String?
-                                            if let data = item as? Data, let str = String(data: data, encoding: .utf8) {
-                                                parsedPath = str
-                                            } else if let str = item as? String {
-                                                parsedPath = str
-                                            }
-                                            if let pathStr = parsedPath, pathStr.hasPrefix("android://") {
-                                                let path = String(pathStr.dropFirst("android://".count))
-                                                Task { @MainActor in
-                                                    TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .android, sourceDeviceSerial: device.serial, sourcePaths: [path], destPlatform: .mac, destPath: destURL.path, destURL: destURL, onProgress: handleProgress)
-                                                }
-                                            }
-                                        }
-                                        handled = true
-                                    }
-                                }
-                                return handled
+                                guard let device = lifecycle.currentDevice, let destURL = localViewModel.currentURL else { return false }
+                                return handleDrop(providers: providers, targetPlatform: .mac, destPath: destURL.path, destURL: destURL, deviceSerial: device.serial)
                             }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -367,5 +288,52 @@ struct DualPaneView: View {
                 }
             }
         }
+    }
+    
+    private func handleDrop(providers: [NSItemProvider], targetPlatform: FilePlatform, destPath: String, destURL: URL, deviceSerial: String?) -> Bool {
+        Task { @MainActor in
+            var macPaths: [String] = []
+            var androidPaths: [String] = []
+            
+            for provider in providers {
+                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                    let path: String? = await withCheckedContinuation { continuation in
+                        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (item, error) in
+                            if let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) {
+                                continuation.resume(returning: url.path)
+                            } else {
+                                continuation.resume(returning: nil)
+                            }
+                        }
+                    }
+                    if let p = path { macPaths.append(p) }
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                    let path: String? = await withCheckedContinuation { continuation in
+                        provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { (item, error) in
+                            var parsedPath: String?
+                            if let data = item as? Data, let str = String(data: data, encoding: .utf8) {
+                                parsedPath = str
+                            } else if let str = item as? String {
+                                parsedPath = str
+                            }
+                            if let p = parsedPath, p.hasPrefix("android://") {
+                                continuation.resume(returning: String(p.dropFirst("android://".count)))
+                            } else {
+                                continuation.resume(returning: nil)
+                            }
+                        }
+                    }
+                    if let p = path { androidPaths.append(p) }
+                }
+            }
+            
+            if !macPaths.isEmpty {
+                TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .mac, sourceDeviceSerial: nil, sourcePaths: macPaths, destPlatform: targetPlatform, destPath: destPath, destURL: destURL, onProgress: handleProgress)
+            }
+            if !androidPaths.isEmpty {
+                TransferEngine.shared.executeTransfer(action: .copy, sourcePlatform: .android, sourceDeviceSerial: deviceSerial, sourcePaths: androidPaths, destPlatform: targetPlatform, destPath: destPath, destURL: destURL, onProgress: handleProgress)
+            }
+        }
+        return true
     }
 }

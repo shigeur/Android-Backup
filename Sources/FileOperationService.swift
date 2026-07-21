@@ -49,7 +49,7 @@ class FileOperationService: ObservableObject {
             do {
                 operationDescription = "Deleting \(URL(fileURLWithPath: path).lastPathComponent)"
                 // Indeterminate on ADB level, but we loop through paths so there is some progress
-                let cmd = ["-s", device.serial, "shell", "rm", "-r", "'\(path)'"]
+                let cmd = ["-s", device.serial, "shell", "rm", "-r", path.adbEscaped]
                 _ = try await ADBManager.shared.run(cmd)
             } catch {
                 print("Failed to delete \(path): \(error)")
@@ -81,7 +81,7 @@ class FileOperationService: ObservableObject {
         let parentDir = (path as NSString).deletingLastPathComponent
         let newPath = (parentDir as NSString).appendingPathComponent(newName)
         do {
-            let cmd = ["-s", device.serial, "shell", "mv", "'\(path)'", "'\(newPath)'"]
+            let cmd = ["-s", device.serial, "shell", "mv", path.adbEscaped, newPath.adbEscaped]
             _ = try await ADBManager.shared.run(cmd)
             await DirectoryCache.shared.invalidateAndroidCache(for: parentDir)
         } catch {
@@ -112,7 +112,7 @@ class FileOperationService: ObservableObject {
         let startTime = Date()
         let newPath = (parentPath as NSString).appendingPathComponent(name)
         do {
-            let cmd = ["-s", device.serial, "shell", "mkdir", "'\(newPath)'"]
+            let cmd = ["-s", device.serial, "shell", "mkdir", newPath.adbEscaped]
             _ = try await ADBManager.shared.run(cmd)
             await DirectoryCache.shared.invalidateAndroidCache(for: parentPath)
             

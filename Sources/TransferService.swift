@@ -164,11 +164,11 @@ class TransferService {
     }
     
     private func streamAndroidFileList(session: TransferSession, remotePath: String, duplicateMode: DuplicateDetectionMode) async throws -> [RemoteFile] {
-        let isDirCommand = ["-s", (session.device?.serial ?? ""), "shell", "if [ -d '\(remotePath)' ]; then echo 'DIR'; else echo 'FILE'; fi"]
+        let isDirCommand = ["-s", (session.device?.serial ?? ""), "shell", "if [ -d \(remotePath.adbEscaped) ]; then echo 'DIR'; else echo 'FILE'; fi"]
         let isDirResult = try await ADBManager.shared.run(isDirCommand)
         let isDirectory = isDirResult.trimmingCharacters(in: .whitespacesAndNewlines) == "DIR"
         
-        let command = ["-s", (session.device?.serial ?? ""), "shell", "find", "'\(remotePath)'", "-type", "f", "-exec", "stat", "-c", "'%s||%Y||%n'", "{}", "\\;"]
+        let command = ["-s", (session.device?.serial ?? ""), "shell", "find", remotePath.adbEscaped, "-type", "f", "-exec", "stat", "-c", "'%s||%Y||%n'", "{}", "\\;"]
         
         let stream = ADBManager.shared.runStreaming(command)
         
@@ -409,7 +409,7 @@ class TransferService {
         let directory = (remotePath as NSString).deletingLastPathComponent
         if createdAndroidDirectories.contains(directory) { return }
         
-        _ = try await ADBManager.shared.run(["-s", device.serial, "shell", "mkdir", "-p", "'\(directory)'"])
+        _ = try await ADBManager.shared.run(["-s", device.serial, "shell", "mkdir", "-p", directory.adbEscaped])
         createdAndroidDirectories.insert(directory)
     }
 }
