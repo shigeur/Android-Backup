@@ -102,6 +102,7 @@ struct FileManagerView: View {
                             items: viewModel.files,
                             selection: $viewModel.selectedFileIDs,
                             isLoading: viewModel.isLoading,
+                            autosaveName: "AndroidFileTable",
                             onDoubleClick: { item in
                                 if item.isDirectory {
                                     viewModel.loadDirectory(item.path)
@@ -115,6 +116,8 @@ struct FileManagerView: View {
                         // Menu is handled by NativeFileBrowser now
                         .frame(minWidth: 400, maxHeight: .infinity)
                     }
+                    .splitViewAutosave("AndroidFileManagerSplit")
+
                     
                     Divider()
                     HStack {
@@ -383,20 +386,21 @@ struct StandaloneFileManagerView: View {
     }
     
     var body: some View {
-        if case .ready(let device) = lifecycle.state {
-            ZStack {
-                FileManagerView(device: device, viewModel: viewModel, onFocus: {})
-                
-                if let activeSession = progressPublisher.activeSessions.values.first, activeSession.state != .idle {
-                    Color.black.opacity(0.4).ignoresSafeArea()
-                    TransferProgressView(session: activeSession) {
-                        viewModel.loadDirectory(viewModel.currentPath)
+        ZStack {
+            if case .ready(let device) = lifecycle.state {
+                ZStack {
+                    FileManagerView(device: device, viewModel: viewModel, onFocus: {})
+                    
+                    if let activeSession = progressPublisher.activeSessions.values.first, activeSession.state != .idle {
+                        Color.black.opacity(0.4).ignoresSafeArea()
+                        TransferProgressView(session: activeSession) {
+                            viewModel.loadDirectory(viewModel.currentPath)
+                        }
                     }
                 }
+            } else {
+                AndroidEmptyStateView()
             }
-        } else {
-            Text("No device connected")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

@@ -25,12 +25,17 @@ struct DualPaneView: View {
         ZStack {
                 VStack(spacing: 0) {
                     HSplitView {
-                        if case .ready(let device) = lifecycle.state {
-                            FileManagerView(device: device, viewModel: androidViewModel, onFocus: {
-                                print("[DebugLogger] Focused pane changed to: Android via onFocus callback")
-                                activePane = .android
-                            })
-                                .focused($activePane, equals: .android)
+                        ZStack {
+                            if case .ready(let device) = lifecycle.state {
+                                FileManagerView(device: device, viewModel: androidViewModel, onFocus: {
+                                    print("[DebugLogger] Focused pane changed to: Android via onFocus callback")
+                                    activePane = .android
+                                })
+                            } else {
+                                AndroidEmptyStateView()
+                            }
+                        }
+                        .focused($activePane, equals: .android)
                                 .onCommand(Selector("copy:")) {
                                     ClipboardManager.shared.copy(paths: Array(androidViewModel.selectedFileIDs), platform: .android, deviceSerial: lifecycle.currentDevice?.serial)
                                 }
@@ -93,9 +98,6 @@ struct DualPaneView: View {
                                     }
                                     return handled
                                 }
-                        } else {
-                            AndroidEmptyStateView()
-                        }
                         
                         // Right pane: macOS Local
                         LocalFileManagerView(viewModel: localViewModel, onFocus: {
@@ -157,6 +159,7 @@ struct DualPaneView: View {
                             }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .splitViewAutosave("DualPaneSplit", isConnected: lifecycle.currentDevice != nil)
                     
                     Divider()
                     

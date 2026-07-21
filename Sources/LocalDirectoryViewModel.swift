@@ -4,6 +4,7 @@ import SwiftUI
 
 @MainActor
 class LocalDirectoryViewModel: ObservableObject {
+    @AppStorage("LastMacURL") private var lastMacURL: String = ""
     @Published var files: [LocalFileItem] = []
     @Published var currentURL: URL? = nil
     @Published var isLoading: Bool = false
@@ -14,11 +15,21 @@ class LocalDirectoryViewModel: ObservableObject {
     
     init() {
         let homeUrl = URL(fileURLWithPath: ProcessInfo.processInfo.environment["HOME"] ?? "/")
+        
+        if !lastMacURL.isEmpty, let url = URL(string: lastMacURL) {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                loadDirectory(url)
+                return
+            }
+        }
+        
         loadDirectory(homeUrl)
     }
     
     func loadDirectory(_ url: URL) {
         self.currentURL = url
+        self.lastMacURL = url.absoluteString
         self.error = nil
         
         Task {

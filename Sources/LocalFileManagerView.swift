@@ -96,6 +96,7 @@ struct LocalFileManagerView: View {
                     items: viewModel.files,
                     selection: $viewModel.selectedFileIDs,
                     isLoading: viewModel.isLoading,
+                    autosaveName: "MacFileTable",
                     onDoubleClick: { item in
                         if item.isDirectory {
                             viewModel.loadDirectory(item.url)

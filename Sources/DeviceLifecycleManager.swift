@@ -117,9 +117,10 @@ class DeviceLifecycleManager: ObservableObject {
                         
                         // Check if it's the exact same device we already have ready
                         if case .ready(let currentDevice) = state, currentDevice.serial == device.serial {
-                            stopSearch()
-                            return
-                        }
+                            // Device is still connected and ready. Keep polling.
+                        } else if case .initializing(let currentDevice) = state, currentDevice.serial == device.serial {
+                            // Device is still initializing. Keep polling.
+                        } else {
                         
                         print("[\(Date())] Device Connected")
                         updateState(.connected(device))
@@ -130,15 +131,14 @@ class DeviceLifecycleManager: ObservableObject {
                         if let initializedDevice = await DeviceManager.shared.initializeDevice(device) {
                             print("[\(Date())] Device Ready")
                             updateState(.ready(initializedDevice))
-                            stopSearch() // Ready is terminal
-                            return
                         } else {
                             updateState(.error("Failed to initialize device"))
                         }
                     }
-                } else {
+                }
+            } else {
                     if state != .searching && state != .disconnected && state != .unauthorized {
-                        updateState(.searching)
+                        updateState(.disconnected)
                         await DirectoryCache.shared.invalidateAllAndroid()
                     }
                 }

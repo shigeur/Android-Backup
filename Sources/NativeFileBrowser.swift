@@ -5,13 +5,14 @@ struct NativeFileBrowser<Item: FileBrowserItem>: NSViewControllerRepresentable {
     var items: [Item]
     @Binding var selection: Set<String>
     var isLoading: Bool = false
+    var autosaveName: String
     
     var onDoubleClick: @MainActor (Item) -> Void
     var contextMenuProvider: @MainActor (Set<String>) -> NSMenu?
     var onFocus: @MainActor () -> Void
     
     func makeNSViewController(context: Context) -> FileBrowserViewController<Item> {
-        let vc = FileBrowserViewController<Item>()
+        let vc = FileBrowserViewController<Item>(autosaveName: autosaveName)
         vc.onSelectionChange = { newSelection in
             DispatchQueue.main.async {
                 self.selection = newSelection
@@ -49,6 +50,7 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     private var tableView: FocusableTableView!
     
     private var items: [Item] = []
+    let autosaveName: String
     
     var onSelectionChange: (@MainActor (Set<String>) -> Void)?
     var onDoubleClick: (@MainActor (Item) -> Void)?
@@ -59,13 +61,6 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     private var isUpdatingSelection = false
     private var isUpdating = false
     
-    init() {
-        super.init(nibName: nil, bundle: nil)
-    }
-    
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-    }
     private var isTableReady = false
     
     // Overlays
@@ -73,6 +68,15 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
     private var loadingSpinner: NSProgressIndicator!
     private var loadingLabel: NSTextField!
     private var emptyStateLabel: NSTextField!
+    
+    init(autosaveName: String) {
+        self.autosaveName = autosaveName
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
     
     override func loadView() {
         self.view = NSView()
@@ -102,7 +106,7 @@ class FileBrowserViewController<Item: FileBrowserItem>: NSViewController, NSTabl
         NotificationCenter.default.addObserver(forName: NSTextView.didBeginEditingNotification, object: nil, queue: .main) { _ in }
         
         // State restoration
-        tableView.autosaveName = "NativeFileBrowserTable"
+        tableView.autosaveName = autosaveName
         tableView.autosaveTableColumns = true
         
         // Columns

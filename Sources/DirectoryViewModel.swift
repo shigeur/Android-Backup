@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 class DirectoryViewModel: ObservableObject {
+    @AppStorage("LastAndroidPath") private var lastAndroidPath: String = "/sdcard"
     @Published var currentPath: String = "/sdcard"
     @Published var files: [ADBFile] = []
     @Published var selectedFileIDs: Set<String> = []
@@ -14,7 +15,8 @@ class DirectoryViewModel: ObservableObject {
     init(device: AndroidDevice? = nil) {
         self.directoryService = DirectoryService(device: device)
         if device != nil {
-            loadDirectory("/sdcard")
+            self.currentPath = self.lastAndroidPath
+            loadDirectory(self.currentPath)
         }
     }
     
@@ -22,7 +24,8 @@ class DirectoryViewModel: ObservableObject {
         self.directoryService.device = device
         if device != nil {
             // Restore previous directory or default
-            loadDirectory(currentPath.isEmpty ? "/sdcard" : currentPath)
+            let pathToLoad = currentPath.isEmpty ? lastAndroidPath : currentPath
+            loadDirectory(pathToLoad)
         } else {
             // Clear files if disconnected
             self.currentPath = ""
@@ -35,6 +38,7 @@ class DirectoryViewModel: ObservableObject {
     
     func loadDirectory(_ path: String) {
         self.currentPath = path
+        self.lastAndroidPath = path
         self.error = nil
         
         Task {

@@ -21,10 +21,12 @@ struct ContentView: View {
                     .navigationTitle("Android Backup")
                 } detail: {
                     if selectedTab == "devices" {
-                        if case .ready(let device) = deviceLifecycle.state {
-                            DeviceInfoView(device: device)
-                        } else {
-                            AndroidEmptyStateView()
+                        ZStack {
+                            if case .ready(let device) = deviceLifecycle.state {
+                                DeviceInfoView(device: device)
+                            } else {
+                                AndroidEmptyStateView()
+                            }
                         }
                     } else if selectedTab == "filemanager" {
                         StandaloneFileManagerView()
@@ -55,6 +57,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
+        .windowAutosaveName("MainAppWindow", isConnected: deviceLifecycle.currentDevice != nil)
         .onAppear {
             appCoordinator.start()
         }
